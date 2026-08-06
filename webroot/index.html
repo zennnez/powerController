@@ -45,6 +45,7 @@
             <span class="label">Quick Setup</span>
             <h2>Mode Presets</h2>
           </div>
+          <span class="muted">Tap to toggle on/off</span>
         </div>
 
         <div class="preset-container">
@@ -148,11 +149,10 @@
               <span><output id="lower-output">78</output>%</span>
             </div>
             <input id="lower-limit" name="lower" type="range" min="30" max="95" value="78">
-            <p class="muted">Charges normally up to Upper Limit, then holds bypass until dropping to Lower Limit.</p>
+            <p class="muted">Cuts power at Upper Limit; holds bypass until capacity drops to Lower Limit to start charging.</p>
           </div>
 
           <p id="form-error" class="error" role="alert"></p>
-          <button id="save-button" class="primary" type="submit">Save Configuration</button>
         </form>
       </section>
 

@@ -27,7 +27,6 @@ const elements = {
   updated: document.querySelector("#last-update"),
   form: document.querySelector("#config-form"),
   error: document.querySelector("#form-error"),
-  save: document.querySelector("#save-button"),
   autosave: document.querySelector("#autosave-indicator"),
   limit: document.querySelector("#charge-limit"),
   limitOutput: document.querySelector("#limit-output"),
@@ -167,11 +166,9 @@ function validateForm() {
     const lowerVal = Number(elements.lower.value);
     const valid = upperVal > lowerVal;
     elements.error.textContent = valid ? "" : "Upper limit must be greater than lower limit";
-    elements.save.disabled = !valid;
     return valid;
   }
   elements.error.textContent = "";
-  elements.save.disabled = false;
   return true;
 }
 
@@ -199,7 +196,6 @@ function renderUI(status) {
   updatePulseDot(status.CONTROLLER_STATE);
   elements.updated.textContent = `Last update: ${new Date().toLocaleTimeString("en-US")}`;
 
-  // Mode & Override Selector Visual Sync
   setModeVisual(activeMode);
   setOverrideVisual(activeOverride);
 
@@ -239,9 +235,27 @@ function setOverrideVisual(override) {
 
 function updatePresetVisual() {
   const limitVal = Number(elements.limit.value);
-  elements.presetDesk.classList.toggle("active", activeMode === "SINGLE" && limitVal === 80);
-  elements.presetLongevity.classList.toggle("active", activeMode === "SINGLE" && limitVal === 70);
-  elements.presetFull.classList.toggle("active", activeMode === "SINGLE" && limitVal === 100);
+  const isSingle = activeMode === "SINGLE";
+  elements.presetDesk.classList.toggle("active", isSingle && limitVal === 80);
+  elements.presetLongevity.classList.toggle("active", isSingle && limitVal === 70);
+  elements.presetFull.classList.toggle("active", isSingle && limitVal === 100);
+}
+
+function togglePreset(targetLimit, chipElement) {
+  vibrate(20);
+  const isActive = chipElement.classList.contains("active");
+
+  if (isActive) {
+    // Tapping active preset disables it and reverts to default 91%
+    chipElement.classList.remove("active");
+    elements.limit.value = 91;
+  } else {
+    // Activate preset
+    setModeVisual("SINGLE");
+    elements.limit.value = targetLimit;
+  }
+
+  triggerAutoSave();
 }
 
 async function refreshStatus(showError = false) {
@@ -297,7 +311,7 @@ async function saveConfig() {
     if (result.errno !== 0) throw new Error(result.stderr || "Save failed");
 
     formDirty = false;
-    vibrate(25);
+    vibrate(15);
     elements.autosave.textContent = "Saved";
     setTimeout(() => {
       elements.autosave.style.opacity = "0";
@@ -318,7 +332,7 @@ function triggerAutoSave() {
   window.clearTimeout(autoSaveTimer);
   autoSaveTimer = window.setTimeout(async () => {
     await saveConfig();
-  }, 500);
+  }, 400);
 }
 
 // Log Fetching & Clearing
@@ -343,14 +357,10 @@ async function clearLogs() {
   }
 }
 
-// Event Listeners
-[elements.limit, elements.upper, elements.lower, elements.maxTemp].forEach((slider) => {
-  slider.addEventListener("input", triggerAutoSave);
-});
-
-elements.form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  await saveConfig();
+// Attach Auto-Save Handlers to All Settings Controls
+[elements.limit, elements.upper, elements.lower, elements.maxTemp].forEach((control) => {
+  control.addEventListener("input", triggerAutoSave);
+  control.addEventListener("change", triggerAutoSave);
 });
 
 elements.modeSingleBtn.addEventListener("click", () => {
@@ -366,24 +376,15 @@ elements.modeDualBtn.addEventListener("click", () => {
 });
 
 elements.presetDesk.addEventListener("click", () => {
-  vibrate(20);
-  setModeVisual("SINGLE");
-  elements.limit.value = 80;
-  triggerAutoSave();
+  togglePreset(80, elements.presetDesk);
 });
 
 elements.presetLongevity.addEventListener("click", () => {
-  vibrate(20);
-  setModeVisual("SINGLE");
-  elements.limit.value = 70;
-  triggerAutoSave();
+  togglePreset(70, elements.presetLongevity);
 });
 
 elements.presetFull.addEventListener("click", () => {
-  vibrate(20);
-  setModeVisual("SINGLE");
-  elements.limit.value = 100;
-  triggerAutoSave();
+  togglePreset(100, elements.presetFull);
 });
 
 elements.overrideAuto.addEventListener("click", () => {

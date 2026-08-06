@@ -11,7 +11,7 @@ esac
 
 MAX_SIZE=1048576
 LOG_FILE="$MODDIR/bypass.log"
-BASE_DESC="Compatible with OnePlus Pad 2 Pro and OPlus devices. Forces bypass charging when battery level reaches limit. Configurable via WebUI or /data/adb/modules/oplusPowerController/config.txt."
+BASE_DESC="Bypass charging controller with WebUI & thermal protection."
 
 LAST_STATE=""
 OFFLINE_FULL_CHECK_INTERVAL=300
@@ -27,7 +27,25 @@ log() {
 
 update_prop_desc() {
     local status_text="$1"
-    sed -i "s|^description=.*|description=[$status_text] $BASE_DESC|g" "$MODDIR/module.prop"
+
+    local mode_desc=""
+    if [ "$MODE" = "DUAL" ]; then
+        mode_desc="Mode: Dual Hysteresis ($UPPER_LIMIT% / $LOWER_LIMIT%)"
+    else
+        mode_desc="Mode: Single Limit ($CHARGE_LIMIT%)"
+    fi
+
+    local thermal_desc=""
+    if [ "$THERMAL_GUARD" = "1" ]; then
+        thermal_desc="Thermal Guard: Enabled (${MAX_TEMP}°C)"
+    else
+        thermal_desc="Thermal Guard: Disabled"
+    fi
+
+    local override_desc="Override: $OVERRIDE_MODE"
+    local settings_summary="$mode_desc | $thermal_desc | $override_desc"
+
+    sed -i "s|^description=.*|description=[Status: $status_text] \n$settings_summary \n$BASE_DESC|g" "$MODDIR/module.prop"
 }
 
 get_temp_celsius() {
@@ -60,6 +78,21 @@ fi
 
 echo 1 > "$BYPASS_NODE"
 log "Safety fallback executed: Default charging enabled."
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    {
+        echo "MODE=SINGLE"
+        echo "CHARGE_LIMIT=$DEFAULT_CHARGE_LIMIT"
+        echo "UPPER_LIMIT=$DEFAULT_UPPER_LIMIT"
+        echo "LOWER_LIMIT=$DEFAULT_LOWER_LIMIT"
+        echo "THERMAL_GUARD=1"
+        echo "MAX_TEMP=$DEFAULT_MAX_TEMP"
+        echo "OVERRIDE_MODE=AUTO"
+    } > "$CONFIG_FILE"
+    log "Config file missing. Auto-generated config.txt with default values."
+fi
+
+load_power_data
 update_prop_desc "🥳 Initialized"
 
 # ==============================
