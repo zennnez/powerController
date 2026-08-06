@@ -1,22 +1,24 @@
 #!/system/bin/sh
 
 # ==============================
-# 路径与变量定义
+# Path and Variable Definitions
 # ==============================
-MODDIR=${0%/*}
-BYPASS_NODE="/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable"
-CAPACITY_NODE="/sys/class/power_supply/battery/capacity"
-USB_ONLINE_NODE="/sys/class/power_supply/usb/online"
+case "$0" in
+    */*) MODDIR=${0%/*} ;;
+    *) MODDIR=. ;;
+esac
+. "$MODDIR/power-data.sh"
+
 MAX_SIZE=1048576
 LOG_FILE="$MODDIR/bypass.log"
-CONFIG_FILE="$MODDIR/config.txt"
-
-BASE_DESC="一加pad2pro可用(其他o系设备可以刷入测试)，可强制开启旁路充电。自定义值->刷入后在 /data/adb/modules/oplusPowerController/config.txt 内可修改你想要的值,修改后立即生效。默认大于等于91%电量进入旁路充电，低于等于78%电量恢复正常充电"
+BASE_DESC="Compatible with OnePlus Pad 2 Pro and OPlus devices. Forces bypass charging when battery level reaches limit. Configurable via WebUI or /data/adb/modules/oplusPowerController/config.txt."
 
 LAST_STATE=""
+OFFLINE_FULL_CHECK_INTERVAL=300
+OFFLINE_USB_CHECK_INTERVAL=10
 
 # ==============================
-# 辅助函数定义
+# Helper Functions
 # ==============================
 log() {
     CURRENT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
@@ -25,121 +27,95 @@ log() {
 
 update_prop_desc() {
     local status_text="$1"
-    sed -i "s|^description=.*|description=【当前状态：$status_text】 $BASE_DESC|g" "$MODDIR/module.prop"
+    sed -i "s|^description=.*|description=[$status_text] $BASE_DESC|g" "$MODDIR/module.prop"
 }
 
 # ==============================
-# 初始化与开机等待
+# Initialization & Boot Wait
 # ==============================
 until [ "$(getprop sys.boot_completed)" = "1" ]; do
     sleep 2
 done
 
-echo "=== OPPO/OnePlus 旁路充电控制模块已启动 ===" >> "$LOG_FILE"
-log "系统启动完成，检查节点..."
+echo "=== OPPO/OnePlus Bypass Charging Controller Started ===" >> "$LOG_FILE"
+log "System boot completed. Checking power supply nodes..."
 
-if [ ! -f "$BYPASS_NODE" ] || [ ! -f "$CAPACITY_NODE" ] || [ ! -f "$USB_ONLINE_NODE" ]; then
-    log "error错误：设备缺少必需的电源节点！模块将停止运行。"
-    update_prop_desc "❌ 该设备无法使用该模块！"
+if ! required_power_nodes_available; then
+    log "Error: Required power supply nodes missing! Module stopping."
+    update_prop_desc "❌ Device Unsupported"
     exit 1
 fi
 
-
 echo 1 > "$BYPASS_NODE"
-log "已执行安全兜底：默认恢复充电能力"
-update_prop_desc "🥳 初始化完成"
+log "Safety fallback executed: Default charging enabled."
+update_prop_desc "🥳 Initialized"
 
 # ==============================
-# 核心守护进程
+# Main Daemon Loop
 # ==============================
 while true; do
 
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo "UPPER_LIMIT=91" > "$CONFIG_FILE"
-        echo "LOWER_LIMIT=78" >> "$CONFIG_FILE"
-        log "未找到配置文件，已自动生成 config.txt 并写入默认值 91/78。"
+        echo "CHARGE_LIMIT=$DEFAULT_CHARGE_LIMIT" > "$CONFIG_FILE"
+        log "Config file missing. Auto-generated config.txt with default charge limit 91%."
     fi
 
-    CURRENT_UPPER=$(grep -m 1 "^UPPER_LIMIT=" "$CONFIG_FILE" | cut -d= -f2 | awk '{print $1}')
-    CURRENT_LOWER=$(grep -m 1 "^LOWER_LIMIT=" "$CONFIG_FILE" | cut -d= -f2 | awk '{print $1}')
-    
-    # 校验
-    if echo "$CURRENT_UPPER" | grep -qE '^[0-9]+$' && [ "$CURRENT_UPPER" -ge 0 ] && [ "$CURRENT_UPPER" -le 100 ]; then
-        ACTIVE_UPPER=$CURRENT_UPPER
-    else
-        ACTIVE_UPPER=91
-    fi
-
-    if echo "$CURRENT_LOWER" | grep -qE '^[0-9]+$' && [ "$CURRENT_LOWER" -ge 0 ] && [ "$CURRENT_LOWER" -le 100 ]; then
-        ACTIVE_LOWER=$CURRENT_LOWER
-    else
-        ACTIVE_LOWER=78
-    fi
-
-    # 上限必须大于下限
-    if [ "$ACTIVE_UPPER" -le "$ACTIVE_LOWER" ]; then
-        ACTIVE_UPPER=91
-        ACTIVE_LOWER=78
-    fi
+    load_power_data
 
     if [ -f "$MODDIR/disable" ] || [ -f "$MODDIR/remove" ]; then
         if [ "$LAST_STATE" != "DISABLED" ]; then
             echo 1 > "$BYPASS_NODE"
-            log "模块被停用或处于卸载状态，已恢复正常满充能力。"
-            update_prop_desc "🔴 模块已停用"
+            log "Module disabled or marked for removal. Reverting to standard charging."
+            update_prop_desc "🔴 Module Disabled"
             LAST_STATE="DISABLED"
         fi
     else
-        CAPACITY=$(cat "$CAPACITY_NODE")
-        USB_ONLINE=$(cat "$USB_ONLINE_NODE")
-        
-        if [ "$USB_ONLINE" -eq 0 ]; then
+        if [ "$USB_ONLINE" != "1" ]; then
             if [ "$LAST_STATE" != "UNPLUGGED" ]; then
                 echo 1 > "$BYPASS_NODE"
-                log "充电器已拔出 (电量 $CAPACITY%)，重置节点为可充电状态。"
-                update_prop_desc "💤 未接电源"
+                log "Charger unplugged (Battery $CAPACITY%). Resetting node to charging state."
+                update_prop_desc "💤 Unplugged"
                 LAST_STATE="UNPLUGGED"
             fi
+
+            # Poll USB online node every 10s while unplugged. Full battery/config check every 300s.
+            OFFLINE_WAITED=0
+            while [ "$OFFLINE_WAITED" -lt "$OFFLINE_FULL_CHECK_INTERVAL" ]; do
+                sleep "$OFFLINE_USB_CHECK_INTERVAL"
+                USB_ONLINE=$(read_node "$USB_ONLINE_NODE")
+                if [ "$USB_ONLINE" = "1" ]; then
+                    log "Charger plugged in. Resuming 1-second charging control loop."
+                    break
+                fi
+                OFFLINE_WAITED=$((OFFLINE_WAITED + OFFLINE_USB_CHECK_INTERVAL))
+            done
+            continue
         else
-            if [ "$CAPACITY" -ge "$ACTIVE_UPPER" ]; then
+            if [ "$CAPACITY" -ge "$CHARGE_LIMIT" ]; then
                 if [ "$LAST_STATE" != "BYPASS_ON" ]; then
                     echo 0 > "$BYPASS_NODE"
-                    log "电量达到 $CAPACITY% (>= 设定上限 $ACTIVE_UPPER%)，触发旁路供电"
-                    update_prop_desc "⚡ 旁路供电中"
+                    log "Battery level reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass power supply."
+                    update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
                     LAST_STATE="BYPASS_ON"
                 fi
-            elif [ "$CAPACITY" -le "$ACTIVE_LOWER" ]; then
+            else
                 if [ "$LAST_STATE" != "CHARGING" ]; then
                     echo 1 > "$BYPASS_NODE"
-                    log "电量降至 $CAPACITY% (<= 设定下限 $ACTIVE_LOWER%)，恢复快速充电。"
-                    update_prop_desc "🟢 正常充电中"
+                    log "Battery level is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed."
+                    update_prop_desc "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
                     LAST_STATE="CHARGING"
-                fi
-            else
-                if [ "$LAST_STATE" = "BYPASS_ON" ] || [ "$LAST_STATE" = "WAITING_DOWN" ]; then
-                    if [ "$LAST_STATE" != "WAITING_DOWN" ]; then
-                        log "电量为 $CAPACITY%，位于区间内，维持旁路状态，等待降至 $ACTIVE_LOWER%。"
-                        update_prop_desc "⚡ 旁路中 (等待降至 $ACTIVE_LOWER%)"
-                        LAST_STATE="WAITING_DOWN"
-                    fi
-                else
-                    if [ "$LAST_STATE" != "WAITING_UP" ]; then
-                        log "电量为 $CAPACITY%，位于区间内，维持充电状态，等待充至 $ACTIVE_UPPER%。"
-                        update_prop_desc "🟢 充电中 (等待充至 $ACTIVE_UPPER%)"
-                        LAST_STATE="WAITING_UP"
-                    fi
                 fi
             fi
         fi
     fi
     
     if [ -f "$LOG_FILE" ]; then
-        FILE_SIZE=$(stat -c%s "$LOG_FILE")
+        FILE_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
         if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then
             : > "$LOG_FILE"
-            log "日志超过1MB，已执行自动清空。" > "$LOG_FILE"
+            log "Log size exceeded 1MB. Auto-cleared log file." > "$LOG_FILE"
         fi
     fi
     
-    sleep 10
+    sleep 1
 done

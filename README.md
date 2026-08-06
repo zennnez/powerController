@@ -1,62 +1,59 @@
-# ⚡ 一加 Pad 2 Pro 旁路充电控制模块 (oplusPowerController)
+# ⚡ OnePlus Pad 2 Pro Bypass Charging Controller (oplusPowerController)
 
-这是一个专为一加 Pad 2 Pro 打造的 Magisk旁路充电控制模块。它通过监听系统电池与 USB 状态，自动接管底层的充电逻辑，在达到指定电量时切断电池充电并转为电源直供（旁路供电），从而有效降低设备发热并延长电池寿命。
+This is a Magisk, KernelSU, and KernelSU Next bypass charging control module designed for the OnePlus Pad 2 Pro and compatible OPPO / OnePlus / Realme (OPlus) devices. It monitors battery level and USB state in real time, controlling hardware charging logic to cut off battery charging when reaching a specified limit and switching to direct power supply (bypass power). This reduces device thermal throttling and extends battery lifespan.
 
-> ⚠️ **注意**：本项目默认基于一加 Pad 2 Pro 节点开发，其他 O 系（OPPO / OnePlus / 真我）设备如果存在对应节点也可刷入测试 。
+> ⚠️ **Note**: This project is developed based on OnePlus Pad 2 Pro kernel power nodes. Other OPlus (OPPO / OnePlus / Realme) devices equipped with matching kernel nodes can also test and use this module.
 
+> ❗ **Important**: When using bypass charging, ensure your charger power output exceeds the device power consumption. Otherwise, power deficits will draw from the battery. If any anomaly occurs, re-plug the charger or reboot the device.
 
-> ❗ **注意：使用此模块旁路充电时，建议输入功率大于所使用时的功率，否则会出现旁路充电时因为功率不足而使用电池并且触发bug，遇到bug可以尝试重启或者拔插充电器解决 **
+## 💡 Why Use This Module?
 
-## 💡 为什么需要这个模块？
+Stock system charging limits (e.g. 80% limit or Game Space bypass) have notable drawbacks:
+1. **Stock limits actively drain battery:** When battery capacity is above the set target, stock firmware actively drains the battery down to the threshold, causing unnecessary battery wear cycles.
+2. **Stock bypass charging is restricted:** Only available during specific gaming scenarios and often relies on software current throttling rather than physical power path isolation.
 
-绿厂系统虽然自带了“80% 充电上限”和游戏空间内的“旁路充电”，但它们存在以下痛点：
-1. **系统充电上限会主动耗电：** 当当前电量高于设定值时，系统会强行消耗电池电量直到降至阈值，增加了不必要的电池循环。
-2. **系统旁路充电受限：** 只能在特定游戏场景下触发，且通常采用“软件级降流”而非物理断电。
+This module directly manages the factory testing kernel node `/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable`. When reaching your designated threshold, it **physically cuts off the battery charging circuit**, delivering power from the charger directly to the mainboard. The battery remains in a idle protection state without charging or discharging.
 
-本模块直接接管 `/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable` 工厂级测试节点。达到设定上限时，**物理切断电池回路**，充电器仅向主板供电。电池既不充电也不放电，处于绝对的休眠保护状态。
+## ✨ Key Features
 
-## ✨ 核心特性
+* **🌐 Integrated WebUI Interface**: Full support for KernelSU and KernelSU Next WebUI dashboard. View live charger status, battery percentage, voltage, current in mA, temperature, and change charge limits dynamically.
+* **🔄 Dynamic Status Display**: The module description in your root manager updates dynamically with real-time physical states (Normal Charging, Bypass Active, Unplugged, Disabled).
+* **🔥 Hot Reloading Configuration**: Modify charge thresholds on the fly. Configuration changes take effect within **10 seconds** without requiring a reboot.
+* **⚡ Hot Reset & Removal Protection**: Disabling or marking the module for removal immediately unlocks hardware charge restrictions within 10 seconds without rebooting.
+* **🛡️ Safety & Failsafes**:
+    * **Node Detection**: Automatically verifies required power supply nodes on boot. Halts safely if nodes are missing.
+    * **Value Validation**: Strictly validates configuration inputs (0-100 integer range). Out-of-bounds or non-numeric inputs automatically fall back to the safe default (91%).
+    * **Uninstall Fallback**: Re-enables full charging capability automatically if the module is disabled or removed.
+* **🗂️ Log Self-Cleaning**: Built-in log rotation automatically clears `bypass.log` when it exceeds 1MB.
 
-* **🔄 动态面板状态**：每次进入 Magisk模块页面，描述栏会动态展示当前设备真实的物理状态（充电中、旁路中等）。
-* **🔥 免重启热更新**：支持自定义上下限电量阈值。修改配置文件后，最迟 **10 秒内自动生效**，完全不需要重启手机或重启模块。
-* **⚡ Magisk 热重载**： 完美适配 Magisk 机制。在 Magisk App 中随时关闭开关或点击移除模块10秒后，无需重启，底层限制解除，立即恢复系统原厂的 100% 满充能力。
-* **🛡️ 极致的安全防呆**：
-    * **节点检测**：开机自动检测底层电源节点，缺失则自动停止运行并报错。
-    * **数值校验**：严格校验自定义配置，输入非数字、超出 0-100 范围，或上限低于下限时，均会自动回退至安全默认值 (91% / 78%)。
-    * **卸载兜底**：当检测到模块被停用或卸载时，会自动恢复系统默认的满血充电能力。
-* **🗂️ 日志自清理**：内置日志系统，当日志文件大小超过 1MB 时会自动清空，防止占用存储空间。
+## 📱 Compatibility Requirements
 
-## 📱 兼容性要求
+Your device kernel must expose the following power supply nodes:
+* Bypass Control: `/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable`
+* Battery Capacity: `/sys/class/power_supply/battery/capacity`
+* USB Online Status: `/sys/class/power_supply/usb/online`
 
-设备内核必须包含以下节点：
-* 旁路控制：`/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable`
-* 电量读取：`/sys/class/power_supply/battery/capacity`
-* USB 状态：`/sys/class/power_supply/usb/online`
+## 📦 Installation & Configuration
 
-## 📦 安装与配置
-
-1.  在 Releases 页面下载最新的 `.zip` 模块包。
-2.  在 Magisk中刷入并重启设备。
-3.  **自定义阈值**：
-    * 使用任意文件管理器（如 MT 管理器）打开路径：`/data/adb/modules/oplusPowerController/config.txt`
-    * 按需修改里面的数值（只能填 0-100 的纯数字,不能存在空格）：
+1. Download the module `.zip` package from Releases.
+2. Flash the module in KernelSU, KernelSU Next, APatch, or Magisk, then reboot.
+3. **Configuration**:
+    * **Via WebUI**: Open KernelSU / KernelSU Next app -> Modules -> WebUI for `oplusPowerController` to adjust the charge limit slider.
+    * **Via File Manager**: Edit `/data/adb/modules/oplusPowerController/config.txt`:
         ```ini
-        UPPER_LIMIT=91  # 充电达到此电量时，触发旁路供电
-        LOWER_LIMIT=78  # 电量掉至此电量时，恢复正常充电
+        CHARGE_LIMIT=91  # Trigger bypass power supply when reaching this battery percentage
         ```
-    * 保存文件，等待约 10 秒后刷新模块页面，即可看到新设置生效。
+    * Save the file; changes apply automatically within seconds.
 
-## 💡 状态指示灯说明
+## 💡 Status Indicators
 
-在模块管理器中，你可以看到如下状态前缀：
-* 🟢 **充电中**：设备正在正常充电，或正向着设定的上限电量冲刺。
-* ⚡ **旁路中** / **旁路供电中**：已达到阈值上限，电池已停止充电，由电源直接为设备主板供电。
-* 💤 **未接电源**：充电器已拔出，模块处于待机状态。
-* 🔴 **模块已停用**：模块已被禁用或标记为卸载，系统已接管默认充电逻辑。
-* ❌ **运行失败**：设备不支持（找不到对应内核节点）。
+The module description in your module manager displays real-time status badges:
+* 🟢 **Normal Charging**: Device is charging normally toward the target limit.
+* ⚡ **Bypass Active**: Target charge limit reached; battery charging is cut off and power is supplied directly to the motherboard.
+* 💤 **Unplugged**: Charger disconnected; module in standby.
+* 🔴 **Module Disabled**: Module disabled or marked for removal; default charging restored.
+* ❌ **Device Unsupported**: Required kernel nodes missing on this device.
 
-## ⚖️ 免责声明
+## ⚖️ Disclaimer
 
-本模块涉及底层电源节点的修改。作者已尽可能完善防呆逻辑与安全兜底，但由于不同系统版本和内核差异，仍无法保证在所有环境下均 100% 绝对安全。**使用本模块造成的一切设备损坏、数据丢失或硬件异常，均由使用者自行承担。**
-
-![Downloads](https://img.shields.io/github/downloads/gitter0721/powerController/total)
+This module modifies low-level hardware power supply nodes. While safety fallbacks and validation logic are built-in, variations across system versions and custom kernels mean absolute safety cannot be guaranteed. **The user assumes all responsibility for any hardware damage, data loss, or system anomalies resulting from the use of this module.**

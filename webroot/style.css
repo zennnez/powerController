@@ -1,0 +1,226 @@
+:root {
+  font-family: Inter, system-ui, -apple-system, Roboto, sans-serif;
+  color: #142019;
+  background: #eef3ef;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 280px;
+  margin: 0;
+  background:
+    radial-gradient(circle at top right, rgba(57, 196, 118, 0.2), transparent 36%),
+    #eef3ef;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  padding: max(28px, env(safe-area-inset-top)) 18px max(32px, env(safe-area-inset-bottom));
+}
+
+header {
+  padding: 12px 4px 22px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  margin-top: 4px;
+  font-size: clamp(28px, 8vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+h2 {
+  margin-top: 4px;
+  font-size: 22px;
+}
+
+.eyebrow,
+.label {
+  color: #547061;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: #6b7d73;
+  font-size: 13px;
+}
+
+#last-update {
+  margin-top: 8px;
+}
+
+.card {
+  border: 1px solid rgba(35, 75, 53, 0.1);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 32px rgba(31, 67, 46, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 148px;
+  padding: 24px;
+  color: #f4fff8;
+  background: linear-gradient(135deg, #153c28, #24764a);
+}
+
+.hero > div:first-child {
+  display: grid;
+  gap: 7px;
+}
+
+.hero .label,
+.hero .muted {
+  color: rgba(244, 255, 248, 0.7);
+}
+
+.state {
+  font-size: 22px;
+}
+
+.battery {
+  white-space: nowrap;
+}
+
+.battery span {
+  font-size: 58px;
+  font-weight: 750;
+  letter-spacing: -0.08em;
+}
+
+.battery small {
+  margin-left: 4px;
+  font-size: 18px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.metric {
+  display: grid;
+  gap: 7px;
+  min-height: 112px;
+  padding: 18px;
+}
+
+.metric strong {
+  overflow-wrap: anywhere;
+  font-size: 20px;
+}
+
+.settings {
+  margin-top: 12px;
+  padding: 22px;
+}
+
+.section-title,
+label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+form {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+label {
+  margin-top: 8px;
+  font-weight: 650;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #23834e;
+}
+
+.error {
+  min-height: 20px;
+  color: #b42318;
+  font-size: 13px;
+}
+
+button {
+  min-height: 50px;
+  border: 0;
+  border-radius: 15px;
+  color: white;
+  background: #1e7144;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
+@media (max-width: 430px) {
+  .hero {
+    min-height: 132px;
+    padding: 20px;
+  }
+
+  .battery span {
+    font-size: 46px;
+  }
+
+  .metric {
+    padding: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e7f0ea;
+    background: #0d1510;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at top right, rgba(41, 145, 86, 0.18), transparent 36%),
+      #0d1510;
+  }
+
+  .card {
+    border-color: rgba(196, 229, 209, 0.1);
+    background: rgba(24, 35, 28, 0.88);
+    box-shadow: none;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, #153c28, #1d6840);
+  }
+
+  .label,
+  .muted {
+    color: #9db1a5;
+  }
+}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>Bypass Charging Controller</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <p class="eyebrow">OPLUS POWER CONTROLLER</p>
+        <h1>Bypass Charging Control</h1>
+        <p id="last-update" class="muted">Reading device status...</p>
+      </header>
+
+      <section class="hero card">
+        <div>
+          <span class="label">Controller State</span>
+          <strong id="controller-state" class="state">Loading...</strong>
+          <span id="battery-status" class="muted">--</span>
+        </div>
+        <div class="battery">
+          <span id="capacity">--</span><small>%</small>
+        </div>
+      </section>
+
+      <section class="metrics">
+        <article class="card metric">
+          <span class="label">Charger State</span>
+          <strong id="usb-online">--</strong>
+          <span id="usb-type" class="muted">--</span>
+        </article>
+        <article class="card metric">
+          <span class="label">Bypass Node</span>
+          <strong id="bypass-enabled">--</strong>
+          <span class="muted">mmi_charging_enable</span>
+        </article>
+        <article class="card metric">
+          <span class="label">Voltage</span>
+          <strong id="voltage">--</strong>
+          <span class="muted">Live battery voltage</span>
+        </article>
+        <article class="card metric">
+          <span class="label">Battery Current</span>
+          <strong id="current">--</strong>
+          <span id="current-source" class="muted">Live battery charge/discharge current</span>
+        </article>
+        <article class="card metric">
+          <span class="label">Temperature</span>
+          <strong id="temperature">--</strong>
+          <span class="muted">Battery temperature</span>
+        </article>
+      </section>
+
+      <section class="card settings">
+        <div class="section-title">
+          <div>
+            <span class="label">Threshold Configuration</span>
+            <h2>Charge Limit</h2>
+          </div>
+          <span class="muted">Applies within 1s when charger is connected</span>
+        </div>
+
+        <form id="config-form">
+          <label for="charge-limit">
+            <span>Charge Limit</span>
+            <span><output id="limit-output">91</output>%</span>
+          </label>
+          <input id="charge-limit" name="limit" type="range" min="0" max="100" value="91">
+          <p class="muted">Charges normally below limit; enters bypass mode when reaching or exceeding limit.</p>
+
+          <p id="form-error" class="error" role="alert"></p>
+          <button id="save-button" type="submit">Save Configuration</button>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

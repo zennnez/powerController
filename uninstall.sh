@@ -1,3 +1,3 @@
 #!/system/bin/sh
-#兜底操作
+# Safety fallback: restore default charging capability
 echo 1 > /sys/devices/virtual/oplus_chg/battery/mmi_charging_enable
