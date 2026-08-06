@@ -30,6 +30,18 @@ update_prop_desc() {
     sed -i "s|^description=.*|description=[$status_text] $BASE_DESC|g" "$MODDIR/module.prop"
 }
 
+get_temp_celsius() {
+    local raw="$1"
+    case "$raw" in
+        ''|N/A|*[!0-9]*) echo 0; return ;;
+    esac
+    if [ "$raw" -ge 200 ]; then
+        echo $((raw / 10))
+    else
+        echo "$raw"
+    fi
+}
+
 # ==============================
 # Initialization & Boot Wait
 # ==============================
@@ -56,8 +68,16 @@ update_prop_desc "🥳 Initialized"
 while true; do
 
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo "CHARGE_LIMIT=$DEFAULT_CHARGE_LIMIT" > "$CONFIG_FILE"
-        log "Config file missing. Auto-generated config.txt with default charge limit 91%."
+        {
+            echo "MODE=SINGLE"
+            echo "CHARGE_LIMIT=$DEFAULT_CHARGE_LIMIT"
+            echo "UPPER_LIMIT=$DEFAULT_UPPER_LIMIT"
+            echo "LOWER_LIMIT=$DEFAULT_LOWER_LIMIT"
+            echo "THERMAL_GUARD=1"
+            echo "MAX_TEMP=$DEFAULT_MAX_TEMP"
+            echo "OVERRIDE_MODE=AUTO"
+        } > "$CONFIG_FILE"
+        log "Config file missing. Auto-generated config.txt with default values."
     fi
 
     load_power_data
@@ -69,41 +89,101 @@ while true; do
             update_prop_desc "🔴 Module Disabled"
             LAST_STATE="DISABLED"
         fi
-    else
-        if [ "$USB_ONLINE" != "1" ]; then
-            if [ "$LAST_STATE" != "UNPLUGGED" ]; then
-                echo 1 > "$BYPASS_NODE"
-                log "Charger unplugged (Battery $CAPACITY%). Resetting node to charging state."
-                update_prop_desc "💤 Unplugged"
-                LAST_STATE="UNPLUGGED"
-            fi
+    elif [ "$USB_ONLINE" != "1" ]; then
+        if [ "$LAST_STATE" != "UNPLUGGED" ]; then
+            echo 1 > "$BYPASS_NODE"
+            log "Charger unplugged (Battery $CAPACITY%). Resetting node to charging state."
+            update_prop_desc "💤 Unplugged"
+            LAST_STATE="UNPLUGGED"
+        fi
 
-            # Poll USB online node every 10s while unplugged. Full battery/config check every 300s.
-            OFFLINE_WAITED=0
-            while [ "$OFFLINE_WAITED" -lt "$OFFLINE_FULL_CHECK_INTERVAL" ]; do
-                sleep "$OFFLINE_USB_CHECK_INTERVAL"
-                USB_ONLINE=$(read_node "$USB_ONLINE_NODE")
-                if [ "$USB_ONLINE" = "1" ]; then
-                    log "Charger plugged in. Resuming 1-second charging control loop."
-                    break
-                fi
-                OFFLINE_WAITED=$((OFFLINE_WAITED + OFFLINE_USB_CHECK_INTERVAL))
-            done
-            continue
+        OFFLINE_WAITED=0
+        while [ "$OFFLINE_WAITED" -lt "$OFFLINE_FULL_CHECK_INTERVAL" ]; do
+            sleep "$OFFLINE_USB_CHECK_INTERVAL"
+            USB_ONLINE=$(read_node "$USB_ONLINE_NODE")
+            if [ "$USB_ONLINE" = "1" ]; then
+                log "Charger plugged in. Resuming 1-second charging control loop."
+                break
+            fi
+            OFFLINE_WAITED=$((OFFLINE_WAITED + OFFLINE_USB_CHECK_INTERVAL))
+        done
+        continue
+    else
+        # 1. Manual Override Evaluation
+        if [ "$OVERRIDE_MODE" = "FORCE_BYPASS" ]; then
+            if [ "$LAST_STATE" != "FORCE_BYPASS" ]; then
+                echo 0 > "$BYPASS_NODE"
+                log "Manual override active: Forced Bypass Power Supply ON."
+                update_prop_desc "⚡ Forced Bypass ON"
+                LAST_STATE="FORCE_BYPASS"
+            fi
+        elif [ "$OVERRIDE_MODE" = "FORCE_CHARGE" ]; then
+            if [ "$LAST_STATE" != "FORCE_CHARGE" ]; then
+                echo 1 > "$BYPASS_NODE"
+                log "Manual override active: Forced Charging ON."
+                update_prop_desc "🟢 Forced Charge ON"
+                LAST_STATE="FORCE_CHARGE"
+            fi
         else
-            if [ "$CAPACITY" -ge "$CHARGE_LIMIT" ]; then
-                if [ "$LAST_STATE" != "BYPASS_ON" ]; then
+            # 2. Thermal Guard Safety Evaluation
+            TEMP_C=$(get_temp_celsius "$TEMPERATURE")
+            if [ "$THERMAL_GUARD" = "1" ] && [ "$TEMP_C" -ge "$MAX_TEMP" ]; then
+                if [ "$LAST_STATE" != "THERMAL_GUARD_ACTIVE" ]; then
                     echo 0 > "$BYPASS_NODE"
-                    log "Battery level reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass power supply."
-                    update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
-                    LAST_STATE="BYPASS_ON"
+                    log "Thermal Guard triggered: Battery Temp ${TEMP_C}°C >= ${MAX_TEMP}°C limit! Forcing bypass mode."
+                    update_prop_desc "🛡️ Thermal Guard Active (${TEMP_C}°C)"
+                    LAST_STATE="THERMAL_GUARD_ACTIVE"
                 fi
             else
-                if [ "$LAST_STATE" != "CHARGING" ]; then
-                    echo 1 > "$BYPASS_NODE"
-                    log "Battery level is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed."
-                    update_prop_desc "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
-                    LAST_STATE="CHARGING"
+                # 3. Normal Automated Control Logic
+                if [ "$MODE" = "DUAL" ]; then
+                    # Dual Threshold Hysteresis Mode
+                    if [ "$CAPACITY" -ge "$UPPER_LIMIT" ]; then
+                        if [ "$LAST_STATE" != "BYPASS_ON" ]; then
+                            echo 0 > "$BYPASS_NODE"
+                            log "[Dual Mode] Battery reached $CAPACITY% (>= upper limit $UPPER_LIMIT%). Activating bypass."
+                            update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $UPPER_LIMIT%)"
+                            LAST_STATE="BYPASS_ON"
+                        fi
+                    elif [ "$CAPACITY" -le "$LOWER_LIMIT" ]; then
+                        if [ "$LAST_STATE" != "CHARGING" ]; then
+                            echo 1 > "$BYPASS_NODE"
+                            log "[Dual Mode] Battery dropped to $CAPACITY% (<= lower limit $LOWER_LIMIT%). Resuming charging."
+                            update_prop_desc "🟢 Normal Charging ($CAPACITY% <= $LOWER_LIMIT%)"
+                            LAST_STATE="CHARGING"
+                        fi
+                    else
+                        if [ "$LAST_STATE" = "BYPASS_ON" ] || [ "$LAST_STATE" = "WAITING_DOWN" ]; then
+                            if [ "$LAST_STATE" != "WAITING_DOWN" ]; then
+                                log "[Dual Mode] Battery is $CAPACITY%. Holding bypass until capacity drops to $LOWER_LIMIT%."
+                                update_prop_desc "⚡ Bypass Active (Waiting for $LOWER_LIMIT%)"
+                                LAST_STATE="WAITING_DOWN"
+                            fi
+                        else
+                            if [ "$LAST_STATE" != "WAITING_UP" ]; then
+                                log "[Dual Mode] Battery is $CAPACITY%. Holding charging until capacity reaches $UPPER_LIMIT%."
+                                update_prop_desc "🟢 Charging Active (Waiting for $UPPER_LIMIT%)"
+                                LAST_STATE="WAITING_UP"
+                            fi
+                        fi
+                    fi
+                else
+                    # Single Charge Limit Mode
+                    if [ "$CAPACITY" -ge "$CHARGE_LIMIT" ]; then
+                        if [ "$LAST_STATE" != "BYPASS_ON" ]; then
+                            echo 0 > "$BYPASS_NODE"
+                            log "[Single Mode] Battery reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass."
+                            update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
+                            LAST_STATE="BYPASS_ON"
+                        fi
+                    else
+                        if [ "$LAST_STATE" != "CHARGING" ]; then
+                            echo 1 > "$BYPASS_NODE"
+                            log "[Single Mode] Battery is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed."
+                            update_prop_desc "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
+                            LAST_STATE="CHARGING"
+                        fi
+                    fi
                 fi
             fi
         fi

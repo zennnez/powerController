@@ -1,30 +1,29 @@
-# ⚡ OnePlus Pad 2 Pro Bypass Charging Controller (oplusPowerController)
+# ⚡ OnePlus / OPPO Bypass Charging Controller (oplusPowerController)
 
-This is a Magisk, KernelSU, and KernelSU Next bypass charging control module designed for the OnePlus Pad 2 Pro and compatible OPPO / OnePlus / Realme (OPlus) devices. It monitors battery level and USB state in real time, controlling hardware charging logic to cut off battery charging when reaching a specified limit and switching to direct power supply (bypass power). This reduces device thermal throttling and extends battery lifespan.
+An advanced Magisk, KernelSU, KernelSU Next, and APatch bypass charging control module designed for the OnePlus Pad 2 Pro and compatible OPPO / OnePlus / Realme (OPlus) devices. It monitors battery levels, USB states, wattage, and temperatures in real time, managing hardware charging logic to cut off battery charging when reaching your set thresholds and powering the motherboard directly.
 
-> ⚠️ **Note**: This project is developed based on OnePlus Pad 2 Pro kernel power nodes. Other OPlus (OPPO / OnePlus / Realme) devices equipped with matching kernel nodes can also test and use this module.
+> ⚠️ **Note**: Developed for OnePlus Pad 2 Pro kernel power nodes (`/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable`). Other OPlus devices with matching factory kernel nodes are also supported.
 
-> ❗ **Important**: When using bypass charging, ensure your charger power output exceeds the device power consumption. Otherwise, power deficits will draw from the battery. If any anomaly occurs, re-plug the charger or reboot the device.
+> ❗ **Important**: When using bypass charging, ensure your charger power output exceeds your device power consumption.
 
-## 💡 Why Use This Module?
+---
 
-Stock system charging limits (e.g. 80% limit or Game Space bypass) have notable drawbacks:
-1. **Stock limits actively drain battery:** When battery capacity is above the set target, stock firmware actively drains the battery down to the threshold, causing unnecessary battery wear cycles.
-2. **Stock bypass charging is restricted:** Only available during specific gaming scenarios and often relies on software current throttling rather than physical power path isolation.
+## ✨ Advanced Features & Capabilities
 
-This module directly manages the factory testing kernel node `/sys/devices/virtual/oplus_chg/battery/mmi_charging_enable`. When reaching your designated threshold, it **physically cuts off the battery charging circuit**, delivering power from the charger directly to the mainboard. The battery remains in a idle protection state without charging or discharging.
+* **🌐 Next-Gen WebUI Dashboard**: Native WebUI integration for KernelSU, KernelSU Next, APatch, and Magisk WebUI managers. Real-time monitoring of live voltage, current in mA, wattage ($W$), battery temperature, and charger state.
+* **🔄 Flexible Control Modes**:
+  * **Single Target Limit Mode**: Set a single charge cutoff threshold (e.g. $80\%$).
+  * **Dual Band Hysteresis Mode**: Configure separate Upper ($85\%$) and Lower ($75\%$) limits. Cuts off charging at the upper limit and holds bypass mode until battery capacity drops below the lower limit.
+* **🛡️ Thermal Guard Protection**: Automatically forces bypass charging if battery temperature reaches or exceeds a safety threshold (default $43^\circ\text{C}$), protecting your battery from high-temperature degradation.
+* **⚡ Manual Override Switch**: Toggle instantly between **Auto Control**, **Force Bypass ON**, or **Force Charge ON**.
+* **🎮 One-Tap Presets**:
+  * **Desk / Gaming Mode**: $80\%$ Charge Limit (Optimized for continuous gaming and desktop use).
+  * **Longevity Mode**: $70\%$ Charge Limit (Maximum long-term battery lifespan).
+  * **Full Charge Mode**: $100\%$ Limit (Standard full charge for travel).
+* **📱 Tactile UX & Auto-Save**: Debounced instant auto-save on slider adjustment, haptic vibration feedback (`navigator.vibrate`), pulsing LED status badges, and circular SVG power gauge visualizer.
+* **📜 Live Log Viewer**: View, refresh, and clear system diagnostic logs directly inside WebUI.
 
-## ✨ Key Features
-
-* **🌐 Integrated WebUI Interface**: Full support for KernelSU and KernelSU Next WebUI dashboard. View live charger status, battery percentage, voltage, current in mA, temperature, and change charge limits dynamically.
-* **🔄 Dynamic Status Display**: The module description in your root manager updates dynamically with real-time physical states (Normal Charging, Bypass Active, Unplugged, Disabled).
-* **🔥 Hot Reloading Configuration**: Modify charge thresholds on the fly. Configuration changes take effect within **10 seconds** without requiring a reboot.
-* **⚡ Hot Reset & Removal Protection**: Disabling or marking the module for removal immediately unlocks hardware charge restrictions within 10 seconds without rebooting.
-* **🛡️ Safety & Failsafes**:
-    * **Node Detection**: Automatically verifies required power supply nodes on boot. Halts safely if nodes are missing.
-    * **Value Validation**: Strictly validates configuration inputs (0-100 integer range). Out-of-bounds or non-numeric inputs automatically fall back to the safe default (91%).
-    * **Uninstall Fallback**: Re-enables full charging capability automatically if the module is disabled or removed.
-* **🗂️ Log Self-Cleaning**: Built-in log rotation automatically clears `bypass.log` when it exceeds 1MB.
+---
 
 ## 📱 Compatibility Requirements
 
@@ -33,26 +32,39 @@ Your device kernel must expose the following power supply nodes:
 * Battery Capacity: `/sys/class/power_supply/battery/capacity`
 * USB Online Status: `/sys/class/power_supply/usb/online`
 
+---
+
 ## 📦 Installation & Configuration
 
-1. Download the module `.zip` package from Releases.
-2. Flash the module in KernelSU, KernelSU Next, APatch, or Magisk, then reboot.
+1. Download the `.zip` module package.
+2. Flash in KernelSU, KernelSU Next, APatch, or Magisk, then reboot.
 3. **Configuration**:
-    * **Via WebUI**: Open KernelSU / KernelSU Next app -> Modules -> WebUI for `oplusPowerController` to adjust the charge limit slider.
-    * **Via File Manager**: Edit `/data/adb/modules/oplusPowerController/config.txt`:
+    * **WebUI**: Open KernelSU / KernelSU Next app -> Modules -> WebUI for `oplusPowerController`.
+    * **File Configuration**: Manually edit `/data/adb/modules/oplusPowerController/config.txt`:
         ```ini
-        CHARGE_LIMIT=91  # Trigger bypass power supply when reaching this battery percentage
+        MODE=SINGLE
+        CHARGE_LIMIT=91
+        UPPER_LIMIT=91
+        LOWER_LIMIT=78
+        THERMAL_GUARD=1
+        MAX_TEMP=43
+        OVERRIDE_MODE=AUTO
         ```
-    * Save the file; changes apply automatically within seconds.
+    * Configuration changes take effect on the fly without rebooting.
+
+---
 
 ## 💡 Status Indicators
 
-The module description in your module manager displays real-time status badges:
-* 🟢 **Normal Charging**: Device is charging normally toward the target limit.
-* ⚡ **Bypass Active**: Target charge limit reached; battery charging is cut off and power is supplied directly to the motherboard.
+* 🟢 **Normal Charging**: Charging normally toward the target limit.
+* ⚡ **Bypass Active**: Bypass mode active; motherboard powered directly from charger.
+* 🛡️ **Thermal Guard Active**: Forced bypass due to high battery temperature.
+* ⚡ **Forced Bypass ON**: Manual override forced bypass mode.
+* 🟢 **Forced Charge ON**: Manual override forced charging mode.
 * 💤 **Unplugged**: Charger disconnected; module in standby.
-* 🔴 **Module Disabled**: Module disabled or marked for removal; default charging restored.
-* ❌ **Device Unsupported**: Required kernel nodes missing on this device.
+* 🔴 **Module Disabled**: Module disabled or marked for removal.
+
+---
 
 ## ⚖️ Disclaimer
 

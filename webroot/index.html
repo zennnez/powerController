@@ -15,17 +15,76 @@
         <p id="last-update" class="muted">Reading device status...</p>
       </header>
 
-      <section class="hero card">
-        <div>
+      <!-- Hero Card with Gauge -->
+      <section class="card hero-card">
+        <div class="hero-info">
           <span class="label">Controller State</span>
-          <strong id="controller-state" class="state">Loading...</strong>
+          <div class="state-badge-wrap">
+            <span id="pulse-dot" class="pulse-dot"></span>
+            <strong id="controller-state" class="state">Loading...</strong>
+          </div>
           <span id="battery-status" class="muted">--</span>
         </div>
-        <div class="battery">
-          <span id="capacity">--</span><small>%</small>
+
+        <div class="gauge-container">
+          <svg class="gauge-svg" viewBox="0 0 100 100">
+            <circle class="gauge-bg" cx="50" cy="50" r="45"></circle>
+            <circle id="gauge-progress" class="gauge-progress" cx="50" cy="50" r="45"></circle>
+          </svg>
+          <div class="gauge-text">
+            <div class="capacity-val"><span id="capacity">--</span><small style="font-size:14px">%</small></div>
+            <div id="wattage" class="wattage-val">0.00 W</div>
+          </div>
         </div>
       </section>
 
+      <!-- Quick Presets -->
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <span class="label">Quick Setup</span>
+            <h2>Mode Presets</h2>
+          </div>
+        </div>
+
+        <div class="preset-container">
+          <div id="preset-desk" class="preset-chip">
+            <span class="preset-icon">🎮</span>
+            <span class="preset-title">Desk / Gaming</span>
+            <span class="preset-sub">80% Limit</span>
+          </div>
+
+          <div id="preset-longevity" class="preset-chip">
+            <span class="preset-icon">🔋</span>
+            <span class="preset-title">Longevity</span>
+            <span class="preset-sub">70% Limit</span>
+          </div>
+
+          <div id="preset-full" class="preset-chip">
+            <span class="preset-icon">⚡</span>
+            <span class="preset-title">Full Charge</span>
+            <span class="preset-sub">100% Limit</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Manual Override Segmented Control -->
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <span class="label">Manual Override</span>
+            <h2>Control Switch</h2>
+          </div>
+        </div>
+
+        <div class="segmented-control">
+          <button id="override-auto" class="segmented-btn active" type="button">🤖 Auto</button>
+          <button id="override-bypass" class="segmented-btn" type="button">⚡ Force Bypass</button>
+          <button id="override-charge" class="segmented-btn" type="button">🟢 Force Charge</button>
+        </div>
+      </section>
+
+      <!-- Hardware Metrics Grid -->
       <section class="metrics">
         <article class="card metric">
           <span class="label">Charger State</span>
@@ -45,36 +104,94 @@
         <article class="card metric">
           <span class="label">Battery Current</span>
           <strong id="current">--</strong>
-          <span id="current-source" class="muted">Live battery charge/discharge current</span>
-        </article>
-        <article class="card metric">
-          <span class="label">Temperature</span>
-          <strong id="temperature">--</strong>
-          <span class="muted">Battery temperature</span>
+          <span id="current-source" class="muted">Live current flow</span>
         </article>
       </section>
 
+      <!-- Threshold Configuration Card -->
       <section class="card settings">
-        <div class="section-title">
+        <div class="section-header">
           <div>
             <span class="label">Threshold Configuration</span>
-            <h2>Charge Limit</h2>
+            <h2>Charge Limits</h2>
           </div>
-          <span class="muted">Applies within 1s when charger is connected</span>
+          <span id="autosave-indicator" class="autosave-pill" style="opacity: 0">Saved</span>
+        </div>
+
+        <!-- Mode Selector -->
+        <div class="segmented-control">
+          <button id="mode-single" class="segmented-btn active" type="button">Target Limit</button>
+          <button id="mode-dual" class="segmented-btn" type="button">Dual Band (Hysteresis)</button>
         </div>
 
         <form id="config-form">
-          <label for="charge-limit">
-            <span>Charge Limit</span>
-            <span><output id="limit-output">91</output>%</span>
-          </label>
-          <input id="charge-limit" name="limit" type="range" min="0" max="100" value="91">
-          <p class="muted">Charges normally below limit; enters bypass mode when reaching or exceeding limit.</p>
+          <!-- Single Limit Group -->
+          <div id="group-single" class="slider-group">
+            <div class="slider-header">
+              <label for="charge-limit">Charge Upper Limit</label>
+              <span><output id="limit-output">91</output>%</span>
+            </div>
+            <input id="charge-limit" name="limit" type="range" min="30" max="100" value="91">
+            <p class="muted">Enters bypass mode when reaching or exceeding limit.</p>
+          </div>
+
+          <!-- Dual Band Hysteresis Group -->
+          <div id="group-dual" class="slider-group" style="display: none;">
+            <div class="slider-header">
+              <label for="upper-limit">Upper Limit (Enter Bypass)</label>
+              <span><output id="upper-output">91</output>%</span>
+            </div>
+            <input id="upper-limit" name="upper" type="range" min="40" max="100" value="91">
+
+            <div class="slider-header" style="margin-top: 10px;">
+              <label for="lower-limit">Lower Limit (Resume Charge)</label>
+              <span><output id="lower-output">78</output>%</span>
+            </div>
+            <input id="lower-limit" name="lower" type="range" min="30" max="95" value="78">
+            <p class="muted">Charges normally up to Upper Limit, then holds bypass until dropping to Lower Limit.</p>
+          </div>
 
           <p id="form-error" class="error" role="alert"></p>
-          <button id="save-button" type="submit">Save Configuration</button>
+          <button id="save-button" class="primary" type="submit">Save Configuration</button>
         </form>
       </section>
+
+      <!-- Thermal Guard Protection -->
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <span class="label">Hardware Protection</span>
+            <h2>Thermal Guard</h2>
+          </div>
+          <strong id="temp-display">-- °C</strong>
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <label for="max-temp">Maximum Temperature Safety Threshold</label>
+            <span><output id="temp-output">43</output>°C</span>
+          </div>
+          <input id="max-temp" name="temp" type="range" min="35" max="55" value="43">
+          <p class="muted">Automatically forces bypass mode when battery temperature reaches or exceeds threshold.</p>
+        </div>
+      </section>
+
+      <!-- Log Viewer -->
+      <section class="card">
+        <div class="log-viewer-header">
+          <div>
+            <span class="label">Diagnostics</span>
+            <h2>Live System Logs</h2>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button id="refresh-log-btn" class="secondary" type="button">Refresh</button>
+            <button id="clear-log-btn" class="secondary" type="button">Clear</button>
+          </div>
+        </div>
+
+        <pre id="log-content" class="log-content">Loading logs...</pre>
+      </section>
+
     </main>
 
     <script type="module" src="app.js"></script>
