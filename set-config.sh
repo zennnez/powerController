@@ -28,9 +28,15 @@ done
 ! is_percentage "$UPPER_LIMIT" && UPPER_LIMIT=91
 ! is_percentage "$LOWER_LIMIT" && LOWER_LIMIT=78
 
-if [ "$UPPER_LIMIT" -le "$LOWER_LIMIT" ]; then
-    echo "Upper limit ($UPPER_LIMIT%) must be greater than lower limit ($LOWER_LIMIT%)" >&2
-    exit 2
+if [ "$MODE" = "DUAL" ]; then
+    if [ "$UPPER_LIMIT" -le "$LOWER_LIMIT" ]; then
+        if [ "$UPPER_LIMIT" -gt 5 ]; then
+            LOWER_LIMIT=$((UPPER_LIMIT - 5))
+        else
+            UPPER_LIMIT=91
+            LOWER_LIMIT=78
+        fi
+    fi
 fi
 
 [ "$THERMAL_GUARD" != "0" ] && THERMAL_GUARD="1"

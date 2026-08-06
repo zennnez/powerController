@@ -17,6 +17,12 @@ LAST_STATE=""
 OFFLINE_FULL_CHECK_INTERVAL=300
 OFFLINE_USB_CHECK_INTERVAL=10
 
+VERSION_STR=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+[ -z "$VERSION_STR" ] && VERSION_STR="v94.0"
+
+VERSION_CODE_STR=$(grep '^versionCode=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="80"
+
 # ==============================
 # Helper Functions
 # ==============================
@@ -45,7 +51,15 @@ update_prop_desc() {
     local override_desc="Override: $OVERRIDE_MODE"
     local settings_summary="$mode_desc | $thermal_desc | $override_desc"
 
-    sed -i "s|^description=.*|description=[Status: $status_text] \n$settings_summary \n$BASE_DESC|g" "$MODDIR/module.prop"
+    local tmp_prop="$MODDIR/module.prop.tmp.$$"
+    {
+        printf 'id=oplusPowerController\n'
+        printf 'name=OnePlus / OPPO Bypass Charging Controller\n'
+        printf 'version=%s\n' "$VERSION_STR"
+        printf 'versionCode=%s\n' "$VERSION_CODE_STR"
+        printf 'author=wind1, zen\n'
+        printf 'description=[Status: %s] \\n%s \\n%s\n' "$status_text" "$settings_summary" "$BASE_DESC"
+    } > "$tmp_prop" && mv -f "$tmp_prop" "$MODDIR/module.prop"
 }
 
 get_temp_celsius() {
@@ -186,17 +200,24 @@ while true; do
                             LAST_STATE="CHARGING"
                         fi
                     else
-                        if [ "$LAST_STATE" = "BYPASS_ON" ] || [ "$LAST_STATE" = "WAITING_DOWN" ]; then
-                            if [ "$LAST_STATE" != "WAITING_DOWN" ]; then
+                        # Capacity is between LOWER_LIMIT and UPPER_LIMIT (e.g. 78% < 90% < 91%)
+                        if [ "$LAST_STATE" = "CHARGING" ] || [ "$LAST_STATE" = "WAITING_UP" ]; then
+                            if [ "$LAST_STATE" != "WAITING_UP" ]; then
+                                log "[Dual Mode] Battery is $CAPACITY%. Continuing charging until upper limit $UPPER_LIMIT%."
+                                update_prop_desc "🟢 Charging Active (Waiting for $UPPER_LIMIT%)"
+                                LAST_STATE="WAITING_UP"
+                            fi
+                        else
+                            # Default to Bypass ON if plugged in above lower limit or coming down
+                            if [ "$LAST_STATE" != "WAITING_DOWN" ] && [ "$LAST_STATE" != "BYPASS_ON" ]; then
+                                echo 0 > "$BYPASS_NODE"
+                                log "[Dual Mode] Battery is $CAPACITY% (> lower limit $LOWER_LIMIT%). Activating bypass until capacity drops to $LOWER_LIMIT%."
+                                update_prop_desc "⚡ Bypass Active (Waiting for $LOWER_LIMIT%)"
+                                LAST_STATE="WAITING_DOWN"
+                            elif [ "$LAST_STATE" != "WAITING_DOWN" ]; then
                                 log "[Dual Mode] Battery is $CAPACITY%. Holding bypass until capacity drops to $LOWER_LIMIT%."
                                 update_prop_desc "⚡ Bypass Active (Waiting for $LOWER_LIMIT%)"
                                 LAST_STATE="WAITING_DOWN"
-                            fi
-                        else
-                            if [ "$LAST_STATE" != "WAITING_UP" ]; then
-                                log "[Dual Mode] Battery is $CAPACITY%. Holding charging until capacity reaches $UPPER_LIMIT%."
-                                update_prop_desc "🟢 Charging Active (Waiting for $UPPER_LIMIT%)"
-                                LAST_STATE="WAITING_UP"
                             fi
                         fi
                     fi
