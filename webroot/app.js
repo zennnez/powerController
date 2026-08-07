@@ -174,8 +174,6 @@ function validateForm() {
 
 function renderUI(status) {
   usbOnline = status.USB_ONLINE;
-  activeMode = status.MODE || "SINGLE";
-  activeOverride = status.OVERRIDE_MODE || "AUTO";
 
   elements.state.textContent = stateLabel(status.CONTROLLER_STATE);
   elements.capacity.textContent = status.CAPACITY === "N/A" ? "--" : status.CAPACITY;
@@ -196,10 +194,13 @@ function renderUI(status) {
   updatePulseDot(status.CONTROLLER_STATE);
   elements.updated.textContent = `Last update: ${new Date().toLocaleTimeString("en-US")}`;
 
-  setModeVisual(activeMode);
-  setOverrideVisual(activeOverride);
-
+  // Only update control values from server if user is NOT actively tapping/editing
   if (!formDirty) {
+    if (status.MODE) activeMode = status.MODE;
+    if (status.OVERRIDE_MODE) activeOverride = status.OVERRIDE_MODE;
+    setModeVisual(activeMode);
+    setOverrideVisual(activeOverride);
+
     if (status.CHARGE_LIMIT) elements.limit.value = status.CHARGE_LIMIT;
     if (status.UPPER_LIMIT) elements.upper.value = status.UPPER_LIMIT;
     if (status.LOWER_LIMIT) elements.lower.value = status.LOWER_LIMIT;
@@ -243,19 +244,20 @@ function updatePresetVisual() {
 
 function togglePreset(targetLimit, chipElement) {
   vibrate(20);
+  formDirty = true;
   const isActive = chipElement.classList.contains("active");
 
   if (isActive) {
-    // Tapping active preset disables it and reverts to default 91%
     chipElement.classList.remove("active");
     elements.limit.value = 91;
   } else {
-    // Activate preset
     setModeVisual("SINGLE");
     elements.limit.value = targetLimit;
   }
 
-  triggerAutoSave();
+  updateOutputs();
+  updatePresetVisual();
+  saveConfigImmediate();
 }
 
 async function refreshStatus(showError = false) {
@@ -292,8 +294,9 @@ function scheduleRefresh() {
   }, delay);
 }
 
-async function saveConfig() {
+async function saveConfigImmediate() {
   if (!validateForm()) return;
+  window.clearTimeout(autoSaveTimer);
   elements.autosave.style.opacity = "1";
   elements.autosave.textContent = "Saving...";
 
@@ -315,7 +318,7 @@ async function saveConfig() {
     elements.autosave.textContent = "Saved";
     setTimeout(() => {
       elements.autosave.style.opacity = "0";
-    }, 1500);
+    }, 1200);
     await refreshStatus(false);
   } catch (err) {
     elements.error.textContent = err.message;
@@ -331,7 +334,7 @@ function triggerAutoSave() {
 
   window.clearTimeout(autoSaveTimer);
   autoSaveTimer = window.setTimeout(async () => {
-    await saveConfig();
+    await saveConfigImmediate();
   }, 400);
 }
 
@@ -357,24 +360,28 @@ async function clearLogs() {
   }
 }
 
-// Attach Auto-Save Handlers to All Settings Controls
+// Sliders (Debounced Auto-Save)
 [elements.limit, elements.upper, elements.lower, elements.maxTemp].forEach((control) => {
   control.addEventListener("input", triggerAutoSave);
-  control.addEventListener("change", triggerAutoSave);
+  control.addEventListener("change", saveConfigImmediate);
 });
 
+// Mode Buttons (Instant 1-Tap Save)
 elements.modeSingleBtn.addEventListener("click", () => {
   vibrate(15);
+  formDirty = true;
   setModeVisual("SINGLE");
-  triggerAutoSave();
+  saveConfigImmediate();
 });
 
 elements.modeDualBtn.addEventListener("click", () => {
   vibrate(15);
+  formDirty = true;
   setModeVisual("DUAL");
-  triggerAutoSave();
+  saveConfigImmediate();
 });
 
+// Presets (Instant 1-Tap Toggle & Save)
 elements.presetDesk.addEventListener("click", () => {
   togglePreset(80, elements.presetDesk);
 });
@@ -387,22 +394,26 @@ elements.presetFull.addEventListener("click", () => {
   togglePreset(100, elements.presetFull);
 });
 
+// Override Buttons (Instant 1-Tap Save)
 elements.overrideAuto.addEventListener("click", () => {
   vibrate(15);
+  formDirty = true;
   setOverrideVisual("AUTO");
-  triggerAutoSave();
+  saveConfigImmediate();
 });
 
 elements.overrideBypass.addEventListener("click", () => {
   vibrate(15);
+  formDirty = true;
   setOverrideVisual("FORCE_BYPASS");
-  triggerAutoSave();
+  saveConfigImmediate();
 });
 
 elements.overrideCharge.addEventListener("click", () => {
   vibrate(15);
+  formDirty = true;
   setOverrideVisual("FORCE_CHARGE");
-  triggerAutoSave();
+  saveConfigImmediate();
 });
 
 elements.refreshLogBtn.addEventListener("click", fetchLogs);

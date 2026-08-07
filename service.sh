@@ -14,14 +14,15 @@ LOG_FILE="$MODDIR/bypass.log"
 BASE_DESC="Bypass charging controller with WebUI & thermal protection."
 
 LAST_STATE=""
+LAST_CONFIG_HASH=""
 OFFLINE_FULL_CHECK_INTERVAL=300
 OFFLINE_USB_CHECK_INTERVAL=10
 
 VERSION_STR=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_STR" ] && VERSION_STR="v94.0"
+[ -z "$VERSION_STR" ] && VERSION_STR="v95.0"
 
 VERSION_CODE_STR=$(grep '^versionCode=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="80"
+[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="81"
 
 # ==============================
 # Helper Functions
@@ -90,8 +91,11 @@ if ! required_power_nodes_available; then
     exit 1
 fi
 
-echo 1 > "$BYPASS_NODE"
-log "Safety fallback executed: Default charging enabled."
+if set_charging_state 1; then
+    log "Safety fallback executed: Default charging enabled."
+else
+    log "Error: Failed to write bypass control node ($BYPASS_NODE). Module cannot control charging."
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
     {
@@ -108,6 +112,21 @@ fi
 
 load_power_data
 update_prop_desc "🥳 Initialized"
+LAST_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}"
+
+# Seed LAST_STATE from the real node value we just confirmed above, instead of
+# leaving it blank. Without this, Dual Mode's hysteresis logic had a bug: if the
+# battery booted sitting between LOWER_LIMIT and UPPER_LIMIT (e.g. 85% with a
+# 78/91 band), the very first loop iteration had no history to go on and always
+# fell through to "activate bypass", even though we had just enabled charging
+# one line above. That caused an immediate, pointless bypass->charge->bypass
+# relay click and cut off charging that should have continued up to the upper
+# limit. Seeding from the real post-fallback state fixes that.
+case "$BYPASS_ENABLED" in
+    0) LAST_STATE="BYPASS_ON" ;;
+    1) LAST_STATE="CHARGING" ;;
+    *) LAST_STATE="" ;;
+esac
 
 # ==============================
 # Main Daemon Loop
@@ -129,16 +148,23 @@ while true; do
 
     load_power_data
 
+    CURRENT_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}"
+    CONFIG_CHANGED=0
+    if [ "$CURRENT_CONFIG_HASH" != "$LAST_CONFIG_HASH" ]; then
+        CONFIG_CHANGED=1
+        LAST_CONFIG_HASH="$CURRENT_CONFIG_HASH"
+    fi
+
     if [ -f "$MODDIR/disable" ] || [ -f "$MODDIR/remove" ]; then
-        if [ "$LAST_STATE" != "DISABLED" ]; then
-            echo 1 > "$BYPASS_NODE"
+        if [ "$LAST_STATE" != "DISABLED" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
             log "Module disabled or marked for removal. Reverting to standard charging."
             update_prop_desc "🔴 Module Disabled"
             LAST_STATE="DISABLED"
         fi
     elif [ "$USB_ONLINE" != "1" ]; then
-        if [ "$LAST_STATE" != "UNPLUGGED" ]; then
-            echo 1 > "$BYPASS_NODE"
+        if [ "$LAST_STATE" != "UNPLUGGED" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
             log "Charger unplugged (Battery $CAPACITY%). Resetting node to charging state."
             update_prop_desc "💤 Unplugged"
             LAST_STATE="UNPLUGGED"
@@ -158,15 +184,15 @@ while true; do
     else
         # 1. Manual Override Evaluation
         if [ "$OVERRIDE_MODE" = "FORCE_BYPASS" ]; then
-            if [ "$LAST_STATE" != "FORCE_BYPASS" ]; then
-                echo 0 > "$BYPASS_NODE"
+            if [ "$LAST_STATE" != "FORCE_BYPASS" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                 log "Manual override active: Forced Bypass Power Supply ON."
                 update_prop_desc "⚡ Forced Bypass ON"
                 LAST_STATE="FORCE_BYPASS"
             fi
         elif [ "$OVERRIDE_MODE" = "FORCE_CHARGE" ]; then
-            if [ "$LAST_STATE" != "FORCE_CHARGE" ]; then
-                echo 1 > "$BYPASS_NODE"
+            if [ "$LAST_STATE" != "FORCE_CHARGE" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
                 log "Manual override active: Forced Charging ON."
                 update_prop_desc "🟢 Forced Charge ON"
                 LAST_STATE="FORCE_CHARGE"
@@ -175,26 +201,40 @@ while true; do
             # 2. Thermal Guard Safety Evaluation
             TEMP_C=$(get_temp_celsius "$TEMPERATURE")
             if [ "$THERMAL_GUARD" = "1" ] && [ "$TEMP_C" -ge "$MAX_TEMP" ]; then
-                if [ "$LAST_STATE" != "THERMAL_GUARD_ACTIVE" ]; then
-                    echo 0 > "$BYPASS_NODE"
+                if [ "$LAST_STATE" != "THERMAL_GUARD_ACTIVE" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                    set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                     log "Thermal Guard triggered: Battery Temp ${TEMP_C}°C >= ${MAX_TEMP}°C limit! Forcing bypass mode."
                     update_prop_desc "🛡️ Thermal Guard Active (${TEMP_C}°C)"
                     LAST_STATE="THERMAL_GUARD_ACTIVE"
                 fi
+            elif ! is_percentage "$CAPACITY"; then
+                # 3. Sensor Sanity Check
+                # CAPACITY came back unreadable/garbage (e.g. "N/A" or a glitched
+                # read). Previously this fell straight into the numeric -ge/-le
+                # comparisons below, which is undefined behavior on a bad string
+                # and could silently misfire the charging state off a bad read.
+                # Instead: leave the charging node exactly as it is this tick
+                # (do nothing) and just log it, rate-limited to once per
+                # transition so a flaky sensor doesn't spam the log.
+                if [ "$LAST_STATE" != "SENSOR_ERROR" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                    log "Warning: Battery capacity unreadable ('$CAPACITY'). Holding current charging state until sensor recovers."
+                    update_prop_desc "⚠️ Sensor Error (holding state)"
+                    LAST_STATE="SENSOR_ERROR"
+                fi
             else
-                # 3. Normal Automated Control Logic
+                # 4. Normal Automated Control Logic
                 if [ "$MODE" = "DUAL" ]; then
                     # Dual Threshold Hysteresis Mode
                     if [ "$CAPACITY" -ge "$UPPER_LIMIT" ]; then
-                        if [ "$LAST_STATE" != "BYPASS_ON" ]; then
-                            echo 0 > "$BYPASS_NODE"
+                        if [ "$LAST_STATE" != "BYPASS_ON" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                            set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                             log "[Dual Mode] Battery reached $CAPACITY% (>= upper limit $UPPER_LIMIT%). Activating bypass."
                             update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $UPPER_LIMIT%)"
                             LAST_STATE="BYPASS_ON"
                         fi
                     elif [ "$CAPACITY" -le "$LOWER_LIMIT" ]; then
-                        if [ "$LAST_STATE" != "CHARGING" ]; then
-                            echo 1 > "$BYPASS_NODE"
+                        if [ "$LAST_STATE" != "CHARGING" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
                             log "[Dual Mode] Battery dropped to $CAPACITY% (<= lower limit $LOWER_LIMIT%). Resuming charging."
                             update_prop_desc "🟢 Normal Charging ($CAPACITY% <= $LOWER_LIMIT%)"
                             LAST_STATE="CHARGING"
@@ -202,7 +242,8 @@ while true; do
                     else
                         # Capacity is between LOWER_LIMIT and UPPER_LIMIT (e.g. 78% < 90% < 91%)
                         if [ "$LAST_STATE" = "CHARGING" ] || [ "$LAST_STATE" = "WAITING_UP" ]; then
-                            if [ "$LAST_STATE" != "WAITING_UP" ]; then
+                            if [ "$LAST_STATE" != "WAITING_UP" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                                set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
                                 log "[Dual Mode] Battery is $CAPACITY%. Continuing charging until upper limit $UPPER_LIMIT%."
                                 update_prop_desc "🟢 Charging Active (Waiting for $UPPER_LIMIT%)"
                                 LAST_STATE="WAITING_UP"
@@ -210,11 +251,12 @@ while true; do
                         else
                             # Default to Bypass ON if plugged in above lower limit or coming down
                             if [ "$LAST_STATE" != "WAITING_DOWN" ] && [ "$LAST_STATE" != "BYPASS_ON" ]; then
-                                echo 0 > "$BYPASS_NODE"
+                                set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                                 log "[Dual Mode] Battery is $CAPACITY% (> lower limit $LOWER_LIMIT%). Activating bypass until capacity drops to $LOWER_LIMIT%."
                                 update_prop_desc "⚡ Bypass Active (Waiting for $LOWER_LIMIT%)"
                                 LAST_STATE="WAITING_DOWN"
-                            elif [ "$LAST_STATE" != "WAITING_DOWN" ]; then
+                            elif [ "$LAST_STATE" != "WAITING_DOWN" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                                set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                                 log "[Dual Mode] Battery is $CAPACITY%. Holding bypass until capacity drops to $LOWER_LIMIT%."
                                 update_prop_desc "⚡ Bypass Active (Waiting for $LOWER_LIMIT%)"
                                 LAST_STATE="WAITING_DOWN"
@@ -224,15 +266,15 @@ while true; do
                 else
                     # Single Charge Limit Mode
                     if [ "$CAPACITY" -ge "$CHARGE_LIMIT" ]; then
-                        if [ "$LAST_STATE" != "BYPASS_ON" ]; then
-                            echo 0 > "$BYPASS_NODE"
+                        if [ "$LAST_STATE" != "BYPASS_ON" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                            set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                             log "[Single Mode] Battery reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass."
                             update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
                             LAST_STATE="BYPASS_ON"
                         fi
                     else
-                        if [ "$LAST_STATE" != "CHARGING" ]; then
-                            echo 1 > "$BYPASS_NODE"
+                        if [ "$LAST_STATE" != "CHARGING" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
+                            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
                             log "[Single Mode] Battery is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed."
                             update_prop_desc "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
                             LAST_STATE="CHARGING"

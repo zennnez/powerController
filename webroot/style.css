@@ -229,29 +229,32 @@ h2 {
   margin-top: 12px;
 }
 
+/* Preset Chip styling - solid white when deactive */
 .preset-chip {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 12px 8px;
-  border: 1px solid rgba(35, 75, 53, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.6);
+  background: #ffffff;
+  color: #142019;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .preset-chip:hover {
-  background: rgba(35, 131, 78, 0.12);
+  background: #f0f7f2;
   border-color: #23834e;
 }
 
 .preset-chip.active {
   background: #1e7144;
-  color: white;
+  color: #ffffff;
   border-color: #1e7144;
-  box-shadow: 0 4px 12px rgba(30, 113, 68, 0.3);
+  box-shadow: 0 4px 14px rgba(30, 113, 68, 0.35);
 }
 
 .preset-chip .preset-icon {
@@ -266,7 +269,7 @@ h2 {
 
 .preset-chip .preset-sub {
   font-size: 11px;
-  opacity: 0.8;
+  opacity: 0.85;
   margin-top: 2px;
 }
 
@@ -423,17 +426,19 @@ button.secondary {
   }
 
   .preset-chip {
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(255, 255, 255, 0.1);
+    background: #ffffff;
+    color: #142019;
+    border-color: rgba(255, 255, 255, 0.2);
   }
 
   .preset-chip:hover {
-    background: rgba(41, 145, 86, 0.25);
+    background: #f0f7f2;
   }
 
   .preset-chip.active {
     background: #23834e;
-    color: white;
+    color: #ffffff;
+    border-color: #23834e;
   }
 
   .segmented-control {
