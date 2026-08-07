@@ -21,13 +21,63 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine Release Trigger
+        id: gate
+        run: |
+          # Decide whether this run should build/release at all, and where
+          # the release message comes from:
+          #
+          #   - Direct push of a "vNN" tag        -> always release (explicit intent)
+          #   - Manual workflow_dispatch           -> always release (explicit intent)
+          #   - Push to main                       -> only release if the HEAD commit
+          #                                            heading matches "vNN: message"
+          #                                            (e.g. "v96: fix dual mode debounce").
+          #                                            Any other commit heading is a
+          #                                            normal, non-release commit and
+          #                                            the build is skipped entirely.
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_FROM_REF="${GITHUB_REF#refs/tags/}"
+            echo "Triggered by direct tag push ($TAG_FROM_REF). Proceeding."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "commit_tag=${TAG_FROM_REF}" >> "$GITHUB_OUTPUT"
+
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Triggered manually via workflow_dispatch. Proceeding."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+          else
+            COMMIT_HEADING="$(git log -1 --pretty=%s)"
+            echo "HEAD commit heading: $COMMIT_HEADING"
+
+            # vNN: message  (digits after 'v', colon, one or more spaces, then a
+            # non-empty message). Anchored at both ends so extra text before/after
+            # the pattern does NOT accidentally match.
+            if [[ "$COMMIT_HEADING" =~ ^v([0-9]+):[[:space:]]+(.+)$ ]]; then
+              echo "Matched release pattern -> tag=v${BASH_REMATCH[1]}"
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+              echo "commit_tag=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+              echo "release_message=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+            else
+              echo "Commit heading does not match the 'vNN: message' release pattern."
+              echo "Not a release commit - skipping build."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Extract Metadata & Commit Log
         id: meta
+        if: steps.gate.outputs.should_release == 'true'
         run: |
           VERSION=$(grep '^version=' module.prop | cut -d= -f2 | tr -d '\r\n ')
           ID=$(grep '^id=' module.prop | cut -d= -f2 | tr -d '\r\n ')
 
-          if [[ "$VERSION" == v* ]]; then
+          # Prefer the tag resolved by the gate step (from the commit heading or
+          # the pushed tag itself). Only fall back to deriving a tag from
+          # module.prop's version when neither applies - i.e. a manual
+          # workflow_dispatch run.
+          if [ -n "${{ steps.gate.outputs.commit_tag }}" ]; then
+            TAG_NAME="${{ steps.gate.outputs.commit_tag }}"
+          elif [[ "$VERSION" == v* ]]; then
             TAG_NAME="$VERSION"
           else
             TAG_NAME="v${VERSION}"
@@ -38,8 +88,18 @@ jobs:
             exit 1
           fi
 
+          # Sanity check only, does not block the build: module.prop's version
+          # should agree with the tag we're about to publish, so a build never
+          # ships a zip whose internal version disagrees with its release tag.
+          if [[ "$VERSION" != "${TAG_NAME}"* ]]; then
+            echo "Warning: module.prop version ('$VERSION') does not start with resolved tag '$TAG_NAME'."
+          fi
+
           SHORT_SHA=$(git rev-parse --short HEAD)
           COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+
+          RELEASE_MESSAGE="${{ steps.gate.outputs.release_message }}"
+          [ -z "$RELEASE_MESSAGE" ] && RELEASE_MESSAGE="$COMMIT_MSG"
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "id=${ID}" >> $GITHUB_OUTPUT
@@ -47,14 +107,17 @@ jobs:
           echo "zip_name=${ID}-${VERSION}.zip" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "commit_msg=${COMMIT_MSG}" >> $GITHUB_OUTPUT
+          echo "release_message=${RELEASE_MESSAGE}" >> $GITHUB_OUTPUT
 
       - name: Build Module Zip Package
+        if: steps.gate.outputs.should_release == 'true'
         run: |
           ZIP_NAME="${{ steps.meta.outputs.zip_name }}"
           zip -r9 "${ZIP_NAME}" * -x ".git/*" ".github/*" ".gitignore" "scratch/*" "*.sha256"
           sha256sum "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
 
       - name: Upload Build Artifacts
+        if: steps.gate.outputs.should_release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.meta.outputs.id }}-${{ steps.meta.outputs.version }}
@@ -63,7 +126,7 @@ jobs:
             ${{ steps.meta.outputs.zip_name }}.sha256
 
       - name: Create or Update GitHub Release
-        if: steps.meta.outputs.tag_name != 'main' && steps.meta.outputs.tag_name != ''
+        if: steps.gate.outputs.should_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: "PowerController ${{ steps.meta.outputs.version }}"
@@ -77,6 +140,7 @@ jobs:
 
             * **Commit**: [`${{ steps.meta.outputs.short_sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
             * **Commit Message**: ${{ steps.meta.outputs.commit_msg }}
+            * **Release Notes**: ${{ steps.meta.outputs.release_message }}
 
             ---
             *SHA256 Checksum:* `${{ steps.meta.outputs.zip_name }}.sha256`
