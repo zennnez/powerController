@@ -24,23 +24,17 @@ for arg in "$@"; do
 done
 
 [ "$MODE" != "DUAL" ] && MODE="SINGLE"
-! is_percentage "$CHARGE_LIMIT" && CHARGE_LIMIT=91
-! is_percentage "$UPPER_LIMIT" && UPPER_LIMIT=91
-! is_percentage "$LOWER_LIMIT" && LOWER_LIMIT=78
+! is_percentage "$CHARGE_LIMIT" && CHARGE_LIMIT=$DEFAULT_CHARGE_LIMIT
+! is_percentage "$UPPER_LIMIT" && UPPER_LIMIT=$DEFAULT_UPPER_LIMIT
+! is_percentage "$LOWER_LIMIT" && LOWER_LIMIT=$DEFAULT_LOWER_LIMIT
 
-if [ "$MODE" = "DUAL" ]; then
-    if [ "$UPPER_LIMIT" -le "$LOWER_LIMIT" ]; then
-        if [ "$UPPER_LIMIT" -gt 5 ]; then
-            LOWER_LIMIT=$((UPPER_LIMIT - 5))
-        else
-            UPPER_LIMIT=91
-            LOWER_LIMIT=78
-        fi
-    fi
-fi
+# Shared with load_config() in power-data.sh so the same minimum-band-gap
+# rule applies whether the config comes from the WebUI, a CLI arg, or a
+# manually edited config.txt.
+normalize_dual_limits
 
 [ "$THERMAL_GUARD" != "0" ] && THERMAL_GUARD="1"
-(! is_number "$MAX_TEMP" || [ "$MAX_TEMP" -lt 25 ] || [ "$MAX_TEMP" -gt 60 ]) && MAX_TEMP=43
+(! is_number "$MAX_TEMP" || [ "$MAX_TEMP" -lt 25 ] || [ "$MAX_TEMP" -gt 60 ]) && MAX_TEMP=$DEFAULT_MAX_TEMP
 
 case "$OVERRIDE_MODE" in
     FORCE_BYPASS|FORCE_CHARGE) ;;

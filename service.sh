@@ -13,16 +13,31 @@ MAX_SIZE=1048576
 LOG_FILE="$MODDIR/bypass.log"
 BASE_DESC="Bypass charging controller with WebUI & thermal protection."
 
+# Minimum seconds between automatic capacity-threshold charging-state flips.
+# This only guards the auto crossing points (Single Mode's one limit, Dual
+# Mode's upper/lower limits) - manual override, unplug, disable, and thermal
+# guard all still react instantly since those need to be immediate. Without
+# this, a fuel gauge reporting e.g. 90/91/90/91 right at a threshold could
+# flip the charging node on/off every second, which is harder on the charge
+# circuitry than a normal charge/bypass cycle.
+MIN_DWELL_SECONDS=15
+AUTO_LAST_CHANGE_EPOCH=0
+
+# Degrees below MAX_TEMP the temperature must drop to before Thermal Guard
+# releases bypass, so a reading sitting right at the threshold doesn't
+# flicker the charging node the same way a too-narrow capacity band would.
+THERMAL_HYSTERESIS=2
+
 LAST_STATE=""
 LAST_CONFIG_HASH=""
 OFFLINE_FULL_CHECK_INTERVAL=300
 OFFLINE_USB_CHECK_INTERVAL=10
 
 VERSION_STR=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_STR" ] && VERSION_STR="v95.0"
+[ -z "$VERSION_STR" ] && VERSION_STR="v96.0"
 
 VERSION_CODE_STR=$(grep '^versionCode=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="81"
+[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="82"
 
 # ==============================
 # Helper Functions
@@ -75,6 +90,38 @@ get_temp_celsius() {
     fi
 }
 
+now_epoch() {
+    date +%s 2>/dev/null || echo 0
+}
+
+# Applies an automatic capacity-threshold charging-state change, but only if
+# either the config just changed (always apply instantly - the user asked
+# for it) or at least MIN_DWELL_SECONDS have passed since the last automatic
+# flip (chatter guard). If neither is true, it silently holds the current
+# state for this tick rather than flipping.
+#   $1 = node value to write (0 or 1)
+#   $2 = new LAST_STATE label
+#   $3 = log message
+#   $4 = module.prop status text
+apply_auto_transition() {
+    local new_state="$1" new_label="$2" msg="$3" desc="$4"
+    local nowt elapsed
+
+    if [ "$CONFIG_CHANGED" -ne 1 ]; then
+        nowt=$(now_epoch)
+        elapsed=$((nowt - AUTO_LAST_CHANGE_EPOCH))
+        if [ "$elapsed" -lt "$MIN_DWELL_SECONDS" ]; then
+            return 0
+        fi
+    fi
+
+    set_charging_state "$new_state" || log "Warning: Bypass control node write failed or unverified (wanted $new_state)."
+    log "$msg"
+    update_prop_desc "$desc"
+    LAST_STATE="$new_label"
+    AUTO_LAST_CHANGE_EPOCH=$(now_epoch)
+}
+
 # ==============================
 # Initialization & Boot Wait
 # ==============================
@@ -113,6 +160,8 @@ fi
 load_power_data
 update_prop_desc "🥳 Initialized"
 LAST_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}"
+
+log "Module $VERSION_STR (code $VERSION_CODE_STR) started. Config: MODE=$MODE CHARGE_LIMIT=$CHARGE_LIMIT UPPER_LIMIT=$UPPER_LIMIT LOWER_LIMIT=$LOWER_LIMIT THERMAL_GUARD=$THERMAL_GUARD MAX_TEMP=$MAX_TEMP OVERRIDE_MODE=$OVERRIDE_MODE NODE_WRITABLE=$NODE_WRITABLE"
 
 # Seed LAST_STATE from the real node value we just confirmed above, instead of
 # leaving it blank. Without this, Dual Mode's hysteresis logic had a bug: if the
@@ -200,7 +249,16 @@ while true; do
         else
             # 2. Thermal Guard Safety Evaluation
             TEMP_C=$(get_temp_celsius "$TEMPERATURE")
-            if [ "$THERMAL_GUARD" = "1" ] && [ "$TEMP_C" -ge "$MAX_TEMP" ]; then
+            # Once guard is active, require the temp to drop THERMAL_HYSTERESIS
+            # degrees below MAX_TEMP before releasing, instead of the exact same
+            # value it tripped at - avoids flicker for a reading sitting right
+            # on the boundary.
+            if [ "$LAST_STATE" = "THERMAL_GUARD_ACTIVE" ]; then
+                THERMAL_RELEASE_POINT=$((MAX_TEMP - THERMAL_HYSTERESIS))
+            else
+                THERMAL_RELEASE_POINT=$MAX_TEMP
+            fi
+            if [ "$THERMAL_GUARD" = "1" ] && [ "$TEMP_C" -ge "$THERMAL_RELEASE_POINT" ]; then
                 if [ "$LAST_STATE" != "THERMAL_GUARD_ACTIVE" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
                     set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
                     log "Thermal Guard triggered: Battery Temp ${TEMP_C}°C >= ${MAX_TEMP}°C limit! Forcing bypass mode."
@@ -227,17 +285,15 @@ while true; do
                     # Dual Threshold Hysteresis Mode
                     if [ "$CAPACITY" -ge "$UPPER_LIMIT" ]; then
                         if [ "$LAST_STATE" != "BYPASS_ON" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
-                            set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
-                            log "[Dual Mode] Battery reached $CAPACITY% (>= upper limit $UPPER_LIMIT%). Activating bypass."
-                            update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $UPPER_LIMIT%)"
-                            LAST_STATE="BYPASS_ON"
+                            apply_auto_transition 0 "BYPASS_ON" \
+                                "[Dual Mode] Battery reached $CAPACITY% (>= upper limit $UPPER_LIMIT%). Activating bypass." \
+                                "⚡ Bypass Active ($CAPACITY% >= $UPPER_LIMIT%)"
                         fi
                     elif [ "$CAPACITY" -le "$LOWER_LIMIT" ]; then
                         if [ "$LAST_STATE" != "CHARGING" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
-                            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
-                            log "[Dual Mode] Battery dropped to $CAPACITY% (<= lower limit $LOWER_LIMIT%). Resuming charging."
-                            update_prop_desc "🟢 Normal Charging ($CAPACITY% <= $LOWER_LIMIT%)"
-                            LAST_STATE="CHARGING"
+                            apply_auto_transition 1 "CHARGING" \
+                                "[Dual Mode] Battery dropped to $CAPACITY% (<= lower limit $LOWER_LIMIT%). Resuming charging." \
+                                "🟢 Normal Charging ($CAPACITY% <= $LOWER_LIMIT%)"
                         fi
                     else
                         # Capacity is between LOWER_LIMIT and UPPER_LIMIT (e.g. 78% < 90% < 91%)
@@ -267,17 +323,15 @@ while true; do
                     # Single Charge Limit Mode
                     if [ "$CAPACITY" -ge "$CHARGE_LIMIT" ]; then
                         if [ "$LAST_STATE" != "BYPASS_ON" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
-                            set_charging_state 0 || log "Warning: Bypass control node write failed or unverified (wanted 0)."
-                            log "[Single Mode] Battery reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass."
-                            update_prop_desc "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
-                            LAST_STATE="BYPASS_ON"
+                            apply_auto_transition 0 "BYPASS_ON" \
+                                "[Single Mode] Battery reached $CAPACITY% (>= limit $CHARGE_LIMIT%). Activating bypass." \
+                                "⚡ Bypass Active ($CAPACITY% >= $CHARGE_LIMIT%)"
                         fi
                     else
                         if [ "$LAST_STATE" != "CHARGING" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
-                            set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
-                            log "[Single Mode] Battery is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed."
-                            update_prop_desc "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
-                            LAST_STATE="CHARGING"
+                            apply_auto_transition 1 "CHARGING" \
+                                "[Single Mode] Battery is $CAPACITY% (< limit $CHARGE_LIMIT%). Standard charging allowed." \
+                                "🟢 Normal Charging ($CAPACITY% < $CHARGE_LIMIT%)"
                         fi
                     fi
                 fi
@@ -289,7 +343,7 @@ while true; do
         FILE_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
         if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then
             : > "$LOG_FILE"
-            log "Log size exceeded 1MB. Auto-cleared log file." > "$LOG_FILE"
+            log "Log size exceeded 1MB. Auto-cleared log file."
         fi
     fi
     

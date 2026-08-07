@@ -4,6 +4,7 @@ DEFAULT_CHARGE_LIMIT=91
 DEFAULT_UPPER_LIMIT=91
 DEFAULT_LOWER_LIMIT=78
 DEFAULT_MAX_TEMP=43
+MIN_BAND_GAP=5
 
 CONFIG_FILE="$MODDIR/config.txt"
 # This is the ONLY confirmed, real charging-control node on the OnePlus Pad 2 Pro
@@ -88,6 +89,24 @@ is_number() {
     return 0
 }
 
+# Ensures UPPER_LIMIT and LOWER_LIMIT (already validated as 0-100 percentages
+# by the caller) are separated by at least MIN_BAND_GAP percent. A too-narrow
+# band lets ordinary fuel-gauge jitter (readings commonly wobble +-1%) cross
+# both thresholds repeatedly, which would rapidly flip the charging node
+# on/off right at the boundary. Shared by load_config() below and by
+# set-config.sh so both entry points enforce the same rule.
+normalize_dual_limits() {
+    GAP=$((UPPER_LIMIT - LOWER_LIMIT))
+    if [ "$GAP" -lt "$MIN_BAND_GAP" ]; then
+        if [ "$UPPER_LIMIT" -ge "$MIN_BAND_GAP" ]; then
+            LOWER_LIMIT=$((UPPER_LIMIT - MIN_BAND_GAP))
+        else
+            UPPER_LIMIT=$DEFAULT_UPPER_LIMIT
+            LOWER_LIMIT=$DEFAULT_LOWER_LIMIT
+        fi
+    fi
+}
+
 load_config() {
     MODE=$(read_config_value MODE)
     [ "$MODE" != "DUAL" ] && MODE="SINGLE"
@@ -101,14 +120,7 @@ load_config() {
     LOWER_LIMIT=$(read_config_value LOWER_LIMIT)
     ! is_percentage "$LOWER_LIMIT" && LOWER_LIMIT=$DEFAULT_LOWER_LIMIT
 
-    if [ "$UPPER_LIMIT" -le "$LOWER_LIMIT" ]; then
-        if [ "$UPPER_LIMIT" -gt 5 ]; then
-            LOWER_LIMIT=$((UPPER_LIMIT - 5))
-        else
-            UPPER_LIMIT=91
-            LOWER_LIMIT=78
-        fi
-    fi
+    normalize_dual_limits
 
     THERMAL_GUARD=$(read_config_value THERMAL_GUARD)
     [ "$THERMAL_GUARD" != "0" ] && THERMAL_GUARD="1"
@@ -182,6 +194,12 @@ load_power_data() {
     TEMPERATURE=$(read_node "$TEMPERATURE_NODE")
     BYPASS_ENABLED=$(read_node "$BYPASS_NODE")
     WATTAGE=$(calculate_wattage "$VOLTAGE_NOW" "$CURRENT_NOW_MA")
+
+    if [ -w "$BYPASS_NODE" ]; then
+        NODE_WRITABLE=1
+    else
+        NODE_WRITABLE=0
+    fi
 
     if [ "$USB_ONLINE" = "0" ]; then
         CONTROLLER_STATE="UNPLUGGED"
