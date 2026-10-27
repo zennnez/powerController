@@ -8,6 +8,7 @@ case "$0" in
     *) MODDIR=. ;;
 esac
 . "$MODDIR/power-data.sh"
+. "$MODDIR/fast-charge.sh"
 
 MAX_SIZE=1048576
 LOG_FILE="$MODDIR/bypass.log"
@@ -26,7 +27,7 @@ AUTO_LAST_CHANGE_EPOCH=0
 # Degrees below MAX_TEMP the temperature must drop to before Thermal Guard
 # releases bypass, so a reading sitting right at the threshold doesn't
 # flicker the charging node the same way a too-narrow capacity band would.
-THERMAL_HYSTERESIS=2
+THERMAL_HYSTERESIS=3
 
 LAST_STATE=""
 LAST_CONFIG_HASH=""
@@ -34,10 +35,10 @@ OFFLINE_FULL_CHECK_INTERVAL=300
 OFFLINE_USB_CHECK_INTERVAL=10
 
 VERSION_STR=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_STR" ] && VERSION_STR="v96.0"
+[ -z "$VERSION_STR" ] && VERSION_STR="v97.0"
 
 VERSION_CODE_STR=$(grep '^versionCode=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="82"
+[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="83"
 
 # ==============================
 # Helper Functions
@@ -153,15 +154,24 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo "THERMAL_GUARD=1"
         echo "MAX_TEMP=$DEFAULT_MAX_TEMP"
         echo "OVERRIDE_MODE=AUTO"
+        echo "FAST_CHARGE=$DEFAULT_FAST_CHARGE"
+        echo "SMART_POWER=$DEFAULT_SMART_POWER"
     } > "$CONFIG_FILE"
     log "Config file missing. Auto-generated config.txt with default values."
 fi
 
 load_power_data
 update_prop_desc "🥳 Initialized"
-LAST_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}"
+LAST_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}_${FAST_CHARGE}"
 
-log "Module $VERSION_STR (code $VERSION_CODE_STR) started. Config: MODE=$MODE CHARGE_LIMIT=$CHARGE_LIMIT UPPER_LIMIT=$UPPER_LIMIT LOWER_LIMIT=$LOWER_LIMIT THERMAL_GUARD=$THERMAL_GUARD MAX_TEMP=$MAX_TEMP OVERRIDE_MODE=$OVERRIDE_MODE NODE_WRITABLE=$NODE_WRITABLE"
+log "Module $VERSION_STR (code $VERSION_CODE_STR) started. Config: MODE=$MODE CHARGE_LIMIT=$CHARGE_LIMIT UPPER_LIMIT=$UPPER_LIMIT LOWER_LIMIT=$LOWER_LIMIT THERMAL_GUARD=$THERMAL_GUARD MAX_TEMP=$MAX_TEMP OVERRIDE_MODE=$OVERRIDE_MODE FAST_CHARGE=$FAST_CHARGE SMART_POWER=$SMART_POWER NODE_WRITABLE=$NODE_WRITABLE"
+
+# FastChargeToggle.apk runs /data/local/tmp/toggle_fast_charge.sh; point it at this module.
+printf '#!/system/bin/sh\nexec sh "%s/toggle-fast-charge.sh"\n' "$MODDIR" > /data/local/tmp/toggle_fast_charge.sh 2>/dev/null
+chmod 755 /data/local/tmp/toggle_fast_charge.sh 2>/dev/null
+
+# Smart power daemon (exits immediately when SMART_POWER=0).
+nohup sh "$MODDIR/smart-power.sh" >/dev/null 2>&1 &
 
 # Seed LAST_STATE from the real node value we just confirmed above, instead of
 # leaving it blank. Without this, Dual Mode's hysteresis logic had a bug: if the
@@ -191,13 +201,15 @@ while true; do
             echo "THERMAL_GUARD=1"
             echo "MAX_TEMP=$DEFAULT_MAX_TEMP"
             echo "OVERRIDE_MODE=AUTO"
+            echo "FAST_CHARGE=$DEFAULT_FAST_CHARGE"
+            echo "SMART_POWER=$DEFAULT_SMART_POWER"
         } > "$CONFIG_FILE"
         log "Config file missing. Auto-generated config.txt with default values."
     fi
 
     load_power_data
 
-    CURRENT_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}"
+    CURRENT_CONFIG_HASH="${MODE}_${CHARGE_LIMIT}_${UPPER_LIMIT}_${LOWER_LIMIT}_${THERMAL_GUARD}_${MAX_TEMP}_${OVERRIDE_MODE}_${FAST_CHARGE}"
     CONFIG_CHANGED=0
     if [ "$CURRENT_CONFIG_HASH" != "$LAST_CONFIG_HASH" ]; then
         CONFIG_CHANGED=1
@@ -208,6 +220,7 @@ while true; do
         if [ "$LAST_STATE" != "DISABLED" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
             set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
             log "Module disabled or marked for removal. Reverting to standard charging."
+            fast_charge_reset
             update_prop_desc "🔴 Module Disabled"
             LAST_STATE="DISABLED"
         fi
@@ -215,6 +228,7 @@ while true; do
         if [ "$LAST_STATE" != "UNPLUGGED" ] || [ "$CONFIG_CHANGED" -eq 1 ]; then
             set_charging_state 1 || log "Warning: Bypass control node write failed or unverified (wanted 1)."
             log "Charger unplugged (Battery $CAPACITY%). Resetting node to charging state."
+            fast_charge_reset
             update_prop_desc "💤 Unplugged"
             LAST_STATE="UNPLUGGED"
         fi
@@ -339,6 +353,12 @@ while true; do
         fi
     fi
     
+    # Fast-charge thermal tiering (plugged in and module enabled only; the
+    # unplugged branch above `continue`s before reaching here).
+    if [ "$LAST_STATE" != "DISABLED" ]; then
+        fast_charge_tick
+    fi
+
     if [ -f "$LOG_FILE" ]; then
         FILE_SIZE=$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)
         if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then

@@ -85,6 +85,26 @@
         </div>
       </section>
 
+      <!-- Fast Charge -->
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <span class="label">Charging Speed</span>
+            <h2>Fast Charge</h2>
+          </div>
+        </div>
+
+        <div class="segmented-control">
+          <button id="fc-off" class="segmented-btn" type="button">Off</button>
+          <button id="fc-smart" class="segmented-btn active" type="button">Smart</button>
+          <button id="fc-max" class="segmented-btn" type="button">Max</button>
+        </div>
+
+        <p class="muted" style="margin-top: 10px;">Smart steps cool_down down as the battery warms (42 / 45 °C). Max removes screen-on throttling and only backs off at 45 °C. Off leaves cool_down alone.</p>
+        <p class="muted">Charge: <span id="fc-state">--</span></p>
+        <p class="muted">Power profile: <span id="power-profile">--</span></p>
+      </section>
+
       <!-- Hardware Metrics Grid -->
       <section class="metrics">
         <article class="card metric">
@@ -169,9 +189,9 @@
         <div class="slider-group">
           <div class="slider-header">
             <label for="max-temp">Maximum Temperature Safety Threshold</label>
-            <span><output id="temp-output">43</output>°C</span>
+            <span><output id="temp-output">46</output>°C</span>
           </div>
-          <input id="max-temp" name="temp" type="range" min="35" max="55" value="43">
+          <input id="max-temp" name="temp" type="range" min="40" max="55" value="46">
           <p class="muted">Automatically forces bypass mode when battery temperature reaches or exceeds threshold.</p>
         </div>
       </section>

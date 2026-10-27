@@ -8,6 +8,9 @@ esac
 
 load_power_data
 
+POWER_PROFILE=$(sed -n 's/^ *"power_profile": "\(.*\)",$/\1/p' "$POWER_STATUS_JSON" 2>/dev/null | head -n 1)
+[ -z "$POWER_PROFILE" ] && POWER_PROFILE="N/A"
+
 printf '%s\n' \
     "MODE=$MODE" \
     "CHARGE_LIMIT=$CHARGE_LIMIT" \
@@ -16,6 +19,11 @@ printf '%s\n' \
     "THERMAL_GUARD=$THERMAL_GUARD" \
     "MAX_TEMP=$MAX_TEMP" \
     "OVERRIDE_MODE=$OVERRIDE_MODE" \
+    "FAST_CHARGE=$FAST_CHARGE" \
+    "SMART_POWER=$SMART_POWER" \
+    "FAST_CHARGE_STATE=$FAST_CHARGE_STATE" \
+    "COOL_DOWN=$COOL_DOWN" \
+    "POWER_PROFILE=$POWER_PROFILE" \
     "CAPACITY=$CAPACITY" \
     "BATTERY_STATUS=$BATTERY_STATUS" \
     "USB_ONLINE=$USB_ONLINE" \

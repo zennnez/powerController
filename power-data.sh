@@ -3,7 +3,9 @@
 DEFAULT_CHARGE_LIMIT=91
 DEFAULT_UPPER_LIMIT=91
 DEFAULT_LOWER_LIMIT=78
-DEFAULT_MAX_TEMP=43
+DEFAULT_MAX_TEMP=46
+DEFAULT_FAST_CHARGE=SMART
+DEFAULT_SMART_POWER=1
 MIN_BAND_GAP=5
 
 CONFIG_FILE="$MODDIR/config.txt"
@@ -26,6 +28,14 @@ BATTERY_STATUS_NODE="$BATTERY_DIR/status"
 VOLTAGE_NOW_NODE="$BATTERY_DIR/voltage_now"
 TEMPERATURE_NODE="$BATTERY_DIR/temp"
 USB_ONLINE_NODE="$USB_DIR/online"
+
+# Fast-charge (thermal tiering) and smart-power shared paths.
+COOL_DOWN_NODE="/sys/devices/virtual/oplus_chg/battery/cool_down"
+COOL_DOWN_NODE_ALT="/sys/class/oplus_chg/battery/cool_down"
+# Flag file kept in sync with FAST_CHARGE=MAX; FastChargeToggle.apk's QS tile reads it.
+FAST_CHARGE_FLAG="/data/local/tmp/super_charge_unlocked"
+FAST_CHARGE_STATE_FILE="/data/local/tmp/fast_charge_state"
+POWER_STATUS_JSON="/data/local/tmp/smart_power_status.json"
 
 # Writes only ever go to the single verified BYPASS_NODE above.
 # state must be exactly "0" (bypass/hold) or "1" (allow charging) - anything
@@ -126,13 +136,22 @@ load_config() {
     [ "$THERMAL_GUARD" != "0" ] && THERMAL_GUARD="1"
 
     MAX_TEMP=$(read_config_value MAX_TEMP)
-    (! is_number "$MAX_TEMP" || [ "$MAX_TEMP" -lt 25 ] || [ "$MAX_TEMP" -gt 60 ]) && MAX_TEMP=$DEFAULT_MAX_TEMP
+    (! is_number "$MAX_TEMP" || [ "$MAX_TEMP" -lt 40 ] || [ "$MAX_TEMP" -gt 55 ]) && MAX_TEMP=$DEFAULT_MAX_TEMP
 
     OVERRIDE_MODE=$(read_config_value OVERRIDE_MODE)
     case "$OVERRIDE_MODE" in
         FORCE_BYPASS|FORCE_CHARGE) ;;
         *) OVERRIDE_MODE="AUTO" ;;
     esac
+
+    FAST_CHARGE=$(read_config_value FAST_CHARGE)
+    case "$FAST_CHARGE" in
+        OFF|SMART|MAX) ;;
+        *) FAST_CHARGE=$DEFAULT_FAST_CHARGE ;;
+    esac
+
+    SMART_POWER=$(read_config_value SMART_POWER)
+    [ "$SMART_POWER" != "0" ] && SMART_POWER="1"
 }
 
 read_usb_type() {
@@ -193,6 +212,8 @@ load_power_data() {
     CURRENT_NOW_MA=$(normalize_current_ma "$CURRENT_NOW_RAW")
     TEMPERATURE=$(read_node "$TEMPERATURE_NODE")
     BYPASS_ENABLED=$(read_node "$BYPASS_NODE")
+    COOL_DOWN=$(read_node "$COOL_DOWN_NODE")
+    FAST_CHARGE_STATE=$(read_node "$FAST_CHARGE_STATE_FILE")
     WATTAGE=$(calculate_wattage "$VOLTAGE_NOW" "$CURRENT_NOW_MA")
 
     if [ -w "$BYPASS_NODE" ]; then

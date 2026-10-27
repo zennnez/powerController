@@ -46,6 +46,11 @@ const elements = {
   overrideAuto: document.querySelector("#override-auto"),
   overrideBypass: document.querySelector("#override-bypass"),
   overrideCharge: document.querySelector("#override-charge"),
+  fcOff: document.querySelector("#fc-off"),
+  fcSmart: document.querySelector("#fc-smart"),
+  fcMax: document.querySelector("#fc-max"),
+  fcState: document.querySelector("#fc-state"),
+  powerProfile: document.querySelector("#power-profile"),
   logContent: document.querySelector("#log-content"),
   refreshLogBtn: document.querySelector("#refresh-log-btn"),
   clearLogBtn: document.querySelector("#clear-log-btn"),
@@ -53,6 +58,7 @@ const elements = {
 
 let activeMode = "SINGLE";
 let activeOverride = "AUTO";
+let activeFastCharge = "SMART";
 let formDirty = false;
 let autoSaveTimer = null;
 let refreshTimer;
@@ -190,6 +196,9 @@ function renderUI(status) {
   const tempC = Number.isFinite(rawTemp) ? (rawTemp >= 200 ? (rawTemp / 10).toFixed(1) : rawTemp.toFixed(1)) : "--";
   elements.tempDisplay.textContent = `${tempC} °C`;
 
+  elements.fcState.textContent = status.FAST_CHARGE_STATE && status.FAST_CHARGE_STATE !== "N/A" ? status.FAST_CHARGE_STATE : "--";
+  elements.powerProfile.textContent = status.SMART_POWER === "0" ? "Disabled (SMART_POWER=0)" : status.POWER_PROFILE && status.POWER_PROFILE !== "N/A" ? status.POWER_PROFILE : "--";
+
   updateGauge(status.CAPACITY, status.CONTROLLER_STATE);
   updatePulseDot(status.CONTROLLER_STATE);
   elements.updated.textContent = `Last update: ${new Date().toLocaleTimeString("en-US")}`;
@@ -198,8 +207,10 @@ function renderUI(status) {
   if (!formDirty) {
     if (status.MODE) activeMode = status.MODE;
     if (status.OVERRIDE_MODE) activeOverride = status.OVERRIDE_MODE;
+    if (status.FAST_CHARGE) activeFastCharge = status.FAST_CHARGE;
     setModeVisual(activeMode);
     setOverrideVisual(activeOverride);
+    setFastChargeVisual(activeFastCharge);
 
     if (status.CHARGE_LIMIT) elements.limit.value = status.CHARGE_LIMIT;
     if (status.UPPER_LIMIT) elements.upper.value = status.UPPER_LIMIT;
@@ -232,6 +243,13 @@ function setOverrideVisual(override) {
   elements.overrideAuto.classList.toggle("active", override === "AUTO");
   elements.overrideBypass.classList.toggle("active", override === "FORCE_BYPASS");
   elements.overrideCharge.classList.toggle("active", override === "FORCE_CHARGE");
+}
+
+function setFastChargeVisual(value) {
+  activeFastCharge = value;
+  elements.fcOff.classList.toggle("active", value === "OFF");
+  elements.fcSmart.classList.toggle("active", value === "SMART");
+  elements.fcMax.classList.toggle("active", value === "MAX");
 }
 
 function updatePresetVisual() {
@@ -308,6 +326,7 @@ async function saveConfigImmediate() {
       `LOWER_LIMIT=${elements.lower.value}`,
       `MAX_TEMP=${elements.maxTemp.value}`,
       `OVERRIDE_MODE=${activeOverride}`,
+      `FAST_CHARGE=${activeFastCharge}`,
     ].join(" ");
 
     const result = await exec(`${SET_CONFIG_COMMAND} ${args}`);
@@ -414,6 +433,20 @@ elements.overrideCharge.addEventListener("click", () => {
   formDirty = true;
   setOverrideVisual("FORCE_CHARGE");
   saveConfigImmediate();
+});
+
+// Fast Charge Buttons (Instant 1-Tap Save)
+[
+  [elements.fcOff, "OFF"],
+  [elements.fcSmart, "SMART"],
+  [elements.fcMax, "MAX"],
+].forEach(([button, value]) => {
+  button.addEventListener("click", () => {
+    vibrate(15);
+    formDirty = true;
+    setFastChargeVisual(value);
+    saveConfigImmediate();
+  });
 });
 
 elements.refreshLogBtn.addEventListener("click", fetchLogs);

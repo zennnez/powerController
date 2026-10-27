@@ -1,7 +1,7 @@
 # ⚡ OnePlus / OPPO Bypass Charging Controller (oplusPowerController)
 
-[![Version](https://img.shields.io/badge/version-v96.0-green.svg)](module.prop)
-[![VersionCode](https://img.shields.io/badge/versionCode-82-blue.svg)](module.prop)
+[![Version](https://img.shields.io/badge/version-v97.0-green.svg)](module.prop)
+[![VersionCode](https://img.shields.io/badge/versionCode-83-blue.svg)](module.prop)
 [![Root Managers](https://img.shields.io/badge/Root-Magisk%20%7C%20KernelSU%20%7C%20KSU%20Next%20%7C%20APatch-orange.svg)](META-INF/com/google/android/update-binary)
 
 An advanced, hardware-level battery management and bypass charging module engineered for **OnePlus Pad 2 Pro (sm8750)** and compatible **OPPO / OnePlus / Realme (OPlus)** devices running **KernelSU**, **KernelSU Next**, **APatch**, or **Magisk**.
@@ -33,10 +33,19 @@ This module targets the single verified charging arbitration voter node on the *
 * **Dual Band Hysteresis Mode**: Configures an `UPPER_LIMIT` (default 91%) and `LOWER_LIMIT` (default 78%). When battery reaches the upper limit, charging stops and bypass mode is held until capacity drops to the lower limit before resuming charging.
 * **Plug-In Hysteresis Logic**: When plugging in at a capacity between lower and upper limits (e.g. 90%), bypass mode is immediately activated unless the device was actively charging up from below the lower limit.
 
+### ⚡ Fast Charge & Smart Power *(merged from OnePlus-Pad-90W-Smart-Charge)*
+* **Fast Charge (`FAST_CHARGE=OFF|SMART|MAX`)**: unlocks the system fast-charge settings and steps the `oplus_chg` `cool_down` level by battery temperature, only while the battery reports `Charging` (so it never fights bypass). Handled in `fast-charge.sh`, called from the main loop.
+  * `SMART` *(default)*: `<42°C` level 0 (full output) · `42–45°C` level 1 (balanced) · `≥45°C` level 3 (heat fallback).
+  * `MAX`: level 0 below 45°C so screen-on throttling is removed; level 2 at ≥45°C.
+  * `OFF`: this module never touches `cool_down` or the charge settings.
+  * `cool_down` is returned to 0 as soon as charging stops. Thermal Guard (`MAX_TEMP`, default 46°C) sits above every tier and cuts charging entirely.
+* **Toggle app (optional)**: `apk/FastChargeToggle.apk` (source in `apk/source/`) adds a launcher icon and a Quick Settings tile that flip `MAX` ⇄ `SMART`. It works unchanged: at boot `service.sh` points `/data/local/tmp/toggle_fast_charge.sh` at `toggle-fast-charge.sh`, and the `/data/local/tmp/super_charge_unlocked` flag the tile reads is kept in sync with `FAST_CHARGE`. The WebUI **Fast Charge** card does the same thing.
+* **Smart Power (`SMART_POWER=1|0`)**: `smart-power.sh` runs a background daemon with per-app profiles for the SM8750: CPU/GPU caps, 60/120Hz refresh, 540Hz touch sampling for games, Doze on screen-off, local `llama-server` boost. Casual-game packages can be added to `/sdcard/casual_powersave_games.txt` (hot-reloaded). Set `SMART_POWER=0` and reboot to disable. Live status is written to `/data/local/tmp/smart_power_status.json`, and profile changes are logged to `bypass.log`.
+
 ### 🛡️ Safety & Stability Features
 * **Minimum Band Gap (`MIN_BAND_GAP=5%`)**: `normalize_dual_limits()` enforces at least 5% separation between `UPPER_LIMIT` and `LOWER_LIMIT` across WebUI, CLI, and `config.txt` to prevent fuel gauge reading jitter from rapidly cycling the charging IC.
 * **Chatter Guard Dwell Timer (`MIN_DWELL_SECONDS=15s`)**: Automatic capacity-threshold transitions (`apply_auto_transition`) require at least 15 seconds between automatic flips. Manual overrides, thermal guard, unplug, and config updates react instantly.
-* **Thermal Guard Protection (`THERMAL_HYSTERESIS=2°C`)**: Forces bypass mode when battery temperature reaches or exceeds `MAX_TEMP` (default 43°C, range 25–60°C). Requires temperature to drop 2°C below `MAX_TEMP` before releasing to prevent boundary flicker.
+* **Thermal Guard Protection (`THERMAL_HYSTERESIS=3°C`)**: Forces bypass mode when battery temperature reaches or exceeds `MAX_TEMP` (default 46°C, range 40–55°C). Requires temperature to drop 3°C below `MAX_TEMP` before releasing to prevent boundary flicker.
 * **Sensor Sanity Check**: Validates `is_percentage "$CAPACITY"`. Glitched or unreadable sensor values ("N/A") freeze state without misfiring.
 * **Boot State Seeding**: Seeds `LAST_STATE` from actual hardware node state on boot to prevent relay clicks between lower and upper limits.
 
@@ -61,8 +70,10 @@ CHARGE_LIMIT=91       # Single limit target percentage (0-100%)
 UPPER_LIMIT=91        # Dual band upper limit (cuts charging)
 LOWER_LIMIT=78        # Dual band lower limit (resumes charging)
 THERMAL_GUARD=1       # Thermal guard safety: 1 (Enabled) or 0 (Disabled)
-MAX_TEMP=43           # Thermal guard threshold temperature in °C (25-60°C)
+MAX_TEMP=46           # Thermal guard threshold temperature in °C (40-55°C)
 OVERRIDE_MODE=AUTO    # Manual override mode: AUTO, FORCE_BYPASS, or FORCE_CHARGE
+FAST_CHARGE=SMART     # Fast charge thermal tiering: OFF, SMART, or MAX
+SMART_POWER=1         # Per-app CPU/GPU/refresh/touch daemon: 1 (Enabled) or 0 (Disabled), applied at boot
 ```
 
 Adjustments can also be passed directly to `set-config.sh`:
@@ -84,3 +95,9 @@ The `module.prop` description updates atomically via `printf` whenever status or
 * 💤 **Unplugged**: Charger disconnected; module in standby.
 * 🔴 **Module Disabled**: Module disabled or marked for removal.
 * ❌ **Device Unsupported**: Required kernel nodes missing or unwritable.
+
+---
+
+## 🙏 Credits
+
+Fast Charge, the toggle app and Smart Power are ported from [OnePlus-Pad-90W-Smart-Charge](https://github.com/NinjaDraco/OnePlus-Pad-90W-Smart-Charge) by NinjaDraco. Not carried over: its `permissive magisk` SELinux rule, `system.prop`, forced `wm density 315` and the `wlan0` MTU clamp.

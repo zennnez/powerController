@@ -49,14 +49,14 @@ jobs:
             COMMIT_HEADING="$(git log -1 --pretty=%s)"
             echo "HEAD commit heading: $COMMIT_HEADING"
 
-            # vNN: message  (digits after 'v', colon, one or more spaces, then a
+            # vNN: message or vNN.N: message  (digits/dots after 'v', colon, one or more spaces, then a
             # non-empty message). Anchored at both ends so extra text before/after
             # the pattern does NOT accidentally match.
-            if [[ "$COMMIT_HEADING" =~ ^v([0-9]+):[[:space:]]+(.+)$ ]]; then
+            if [[ "$COMMIT_HEADING" =~ ^v([0-9]+(\.[0-9]+)*):[[:space:]]+(.+)$ ]]; then
               echo "Matched release pattern -> tag=v${BASH_REMATCH[1]}"
               echo "should_release=true" >> "$GITHUB_OUTPUT"
               echo "commit_tag=v${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-              echo "release_message=${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+              echo "release_message=${BASH_REMATCH[3]}" >> "$GITHUB_OUTPUT"
             else
               echo "Commit heading does not match the 'vNN: message' release pattern."
               echo "Not a release commit - skipping build."
