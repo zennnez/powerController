@@ -19,6 +19,7 @@ for arg in "$@"; do
         OVERRIDE_MODE=*) OVERRIDE_MODE="${arg#*=}" ;;
         FAST_CHARGE=*) FAST_CHARGE="${arg#*=}" ;;
         SMART_POWER=*) SMART_POWER="${arg#*=}" ;;
+        RATED_WATTS=*) RATED_WATTS="${arg#*=}" ;;
         [0-9]*)
             CHARGE_LIMIT="$arg"
             ;;
@@ -48,6 +49,7 @@ case "$FAST_CHARGE" in
     *) FAST_CHARGE=$DEFAULT_FAST_CHARGE ;;
 esac
 [ "$SMART_POWER" != "0" ] && SMART_POWER="1"
+(! is_number "$RATED_WATTS" || [ "$RATED_WATTS" -gt "$MAX_RATED_WATTS" ]) && RATED_WATTS=$DEFAULT_RATED_WATTS
 
 TMP_FILE="$CONFIG_FILE.tmp.$$"
 umask 022
@@ -61,6 +63,7 @@ if ! {
     printf 'OVERRIDE_MODE=%s\n' "$OVERRIDE_MODE"
     printf 'FAST_CHARGE=%s\n' "$FAST_CHARGE"
     printf 'SMART_POWER=%s\n' "$SMART_POWER"
+    printf 'RATED_WATTS=%s\n' "$RATED_WATTS"
 } > "$TMP_FILE"; then
     echo "Failed to write temporary configuration file" >&2
     rm -f "$TMP_FILE"

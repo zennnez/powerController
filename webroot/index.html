@@ -101,6 +101,15 @@
         </div>
 
         <p class="muted" style="margin-top: 10px;">Smart steps cool_down down as the battery warms (42 / 45 °C). Max removes screen-on throttling and only backs off at 45 °C. Off leaves cool_down alone.</p>
+        <div class="slider-group">
+          <div class="slider-header">
+            <label for="rated-watts">Rated charge power</label>
+            <span><output id="rated-output">Auto</output></span>
+          </div>
+          <input id="rated-watts" name="rated" type="range" min="0" max="150" step="5" value="0">
+          <p class="muted">Auto uses the highest charge power seen on this device. Set a value to override it.</p>
+          <p class="muted">Rated: <span id="rated-effective">--</span></p>
+        </div>
         <p class="muted">Charge: <span id="fc-state">--</span></p>
         <p class="muted">Power profile: <span id="power-profile">--</span></p>
       </section>

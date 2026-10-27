@@ -51,6 +51,9 @@ const elements = {
   fcMax: document.querySelector("#fc-max"),
   fcState: document.querySelector("#fc-state"),
   powerProfile: document.querySelector("#power-profile"),
+  rated: document.querySelector("#rated-watts"),
+  ratedOutput: document.querySelector("#rated-output"),
+  ratedEffective: document.querySelector("#rated-effective"),
   logContent: document.querySelector("#log-content"),
   refreshLogBtn: document.querySelector("#refresh-log-btn"),
   clearLogBtn: document.querySelector("#clear-log-btn"),
@@ -161,6 +164,7 @@ function updateGauge(capacityPercent, controllerState) {
 
 function updateOutputs() {
   elements.limitOutput.value = elements.limit.value;
+  elements.ratedOutput.value = Number(elements.rated.value) > 0 ? `${elements.rated.value} W` : "Auto";
   elements.upperOutput.value = elements.upper.value;
   elements.lowerOutput.value = elements.lower.value;
   elements.tempOutput.value = elements.maxTemp.value;
@@ -196,6 +200,11 @@ function renderUI(status) {
   const tempC = Number.isFinite(rawTemp) ? (rawTemp >= 200 ? (rawTemp / 10).toFixed(1) : rawTemp.toFixed(1)) : "--";
   elements.tempDisplay.textContent = `${tempC} °C`;
 
+  elements.ratedEffective.textContent = status.RATED_SOURCE === "manual"
+    ? `${status.RATED_EFFECTIVE} W (manual)`
+    : status.RATED_SOURCE === "detected"
+      ? `${status.RATED_EFFECTIVE} W (detected peak)`
+      : "Unknown until a charge is seen";
   elements.fcState.textContent = status.FAST_CHARGE_STATE && status.FAST_CHARGE_STATE !== "N/A" ? status.FAST_CHARGE_STATE : "--";
   elements.powerProfile.textContent = status.SMART_POWER === "0" ? "Disabled (SMART_POWER=0)" : status.POWER_PROFILE && status.POWER_PROFILE !== "N/A" ? status.POWER_PROFILE : "--";
 
@@ -216,6 +225,7 @@ function renderUI(status) {
     if (status.UPPER_LIMIT) elements.upper.value = status.UPPER_LIMIT;
     if (status.LOWER_LIMIT) elements.lower.value = status.LOWER_LIMIT;
     if (status.MAX_TEMP) elements.maxTemp.value = status.MAX_TEMP;
+    if (status.RATED_WATTS !== undefined) elements.rated.value = status.RATED_WATTS;
     updateOutputs();
     validateForm();
     updatePresetVisual();
@@ -327,6 +337,7 @@ async function saveConfigImmediate() {
       `MAX_TEMP=${elements.maxTemp.value}`,
       `OVERRIDE_MODE=${activeOverride}`,
       `FAST_CHARGE=${activeFastCharge}`,
+      `RATED_WATTS=${elements.rated.value}`,
     ].join(" ");
 
     const result = await exec(`${SET_CONFIG_COMMAND} ${args}`);
@@ -380,7 +391,7 @@ async function clearLogs() {
 }
 
 // Sliders (Debounced Auto-Save)
-[elements.limit, elements.upper, elements.lower, elements.maxTemp].forEach((control) => {
+[elements.limit, elements.upper, elements.lower, elements.maxTemp, elements.rated].forEach((control) => {
   control.addEventListener("input", triggerAutoSave);
   control.addEventListener("change", saveConfigImmediate);
 });

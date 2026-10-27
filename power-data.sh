@@ -6,6 +6,8 @@ DEFAULT_LOWER_LIMIT=78
 DEFAULT_MAX_TEMP=46
 DEFAULT_FAST_CHARGE=SMART
 DEFAULT_SMART_POWER=1
+DEFAULT_RATED_WATTS=0   # 0 = auto-detect from the highest charge power seen
+MAX_RATED_WATTS=150
 MIN_BAND_GAP=5
 
 CONFIG_FILE="$MODDIR/config.txt"
@@ -36,6 +38,8 @@ COOL_DOWN_NODE_ALT="/sys/class/oplus_chg/battery/cool_down"
 FAST_CHARGE_FLAG="/data/local/tmp/super_charge_unlocked"
 FAST_CHARGE_STATE_FILE="/data/local/tmp/fast_charge_state"
 POWER_STATUS_JSON="/data/local/tmp/smart_power_status.json"
+# Highest charge power (W, integer) seen while charging; maintained by service.sh.
+PEAK_WATTS_FILE="$MODDIR/peak_watts"
 
 # Writes only ever go to the single verified BYPASS_NODE above.
 # state must be exactly "0" (bypass/hold) or "1" (allow charging) - anything
@@ -152,6 +156,23 @@ load_config() {
 
     SMART_POWER=$(read_config_value SMART_POWER)
     [ "$SMART_POWER" != "0" ] && SMART_POWER="1"
+
+    RATED_WATTS=$(read_config_value RATED_WATTS)
+    (! is_number "$RATED_WATTS" || [ "$RATED_WATTS" -gt "$MAX_RATED_WATTS" ]) && RATED_WATTS=$DEFAULT_RATED_WATTS
+}
+
+# Effective rated charge power: manual value if set, else the detected peak.
+# Sets RATED_EFFECTIVE (W or N/A) and RATED_SOURCE (manual|detected|unknown).
+resolve_rated_watts() {
+    local peak
+    peak=$(read_node "$PEAK_WATTS_FILE")
+    if [ "$RATED_WATTS" -gt 0 ]; then
+        RATED_EFFECTIVE=$RATED_WATTS; RATED_SOURCE="manual"
+    elif is_number "$peak" && [ "$peak" -gt 0 ]; then
+        RATED_EFFECTIVE=$peak; RATED_SOURCE="detected"
+    else
+        RATED_EFFECTIVE="N/A"; RATED_SOURCE="unknown"
+    fi
 }
 
 read_usb_type() {
@@ -214,6 +235,7 @@ load_power_data() {
     BYPASS_ENABLED=$(read_node "$BYPASS_NODE")
     COOL_DOWN=$(read_node "$COOL_DOWN_NODE")
     FAST_CHARGE_STATE=$(read_node "$FAST_CHARGE_STATE_FILE")
+    resolve_rated_watts
     WATTAGE=$(calculate_wattage "$VOLTAGE_NOW" "$CURRENT_NOW_MA")
 
     if [ -w "$BYPASS_NODE" ]; then

@@ -39,6 +39,7 @@ This module targets the single verified charging arbitration voter node on the *
   * `MAX`: level 0 below 45°C so screen-on throttling is removed; level 2 at ≥45°C.
   * `OFF`: this module never touches `cool_down` or the charge settings.
   * `cool_down` is returned to 0 as soon as charging stops. Thermal Guard (`MAX_TEMP`, default 46°C) sits above every tier and cuts charging entirely.
+* **Rated charge power**: no wattage is hard-coded. `service.sh` records the highest charge power seen while charging in `peak_watts`, and the WebUI shows it as the detected rating. Set `RATED_WATTS` (slider in the WebUI, 0 = Auto) to override it for your charger. It is informational and does not change charging behaviour.
 * **Toggle app (optional)**: `apk/FastChargeToggle.apk` (source in `apk/source/`) adds a launcher icon and a Quick Settings tile that flip `MAX` ⇄ `SMART`. It works unchanged: at boot `service.sh` points `/data/local/tmp/toggle_fast_charge.sh` at `toggle-fast-charge.sh`, and the `/data/local/tmp/super_charge_unlocked` flag the tile reads is kept in sync with `FAST_CHARGE`. The WebUI **Fast Charge** card does the same thing.
 * **Smart Power (`SMART_POWER=1|0`)**: `smart-power.sh` runs a background daemon with per-app profiles for the SM8750: CPU/GPU caps, 60/120Hz refresh, 540Hz touch sampling for games, Doze on screen-off, local `llama-server` boost. Casual-game packages can be added to `/sdcard/casual_powersave_games.txt` (hot-reloaded). Set `SMART_POWER=0` and reboot to disable. Live status is written to `/data/local/tmp/smart_power_status.json`, and profile changes are logged to `bypass.log`.
 
@@ -74,6 +75,7 @@ MAX_TEMP=46           # Thermal guard threshold temperature in °C (40-55°C)
 OVERRIDE_MODE=AUTO    # Manual override mode: AUTO, FORCE_BYPASS, or FORCE_CHARGE
 FAST_CHARGE=SMART     # Fast charge thermal tiering: OFF, SMART, or MAX
 SMART_POWER=1         # Per-app CPU/GPU/refresh/touch daemon: 1 (Enabled) or 0 (Disabled), applied at boot
+RATED_WATTS=0         # Rated charge power in W (0-150). 0 = auto, use the highest charge power seen
 ```
 
 Adjustments can also be passed directly to `set-config.sh`:

@@ -83,7 +83,7 @@ fast_charge_tick() {
         if [ "$temp_c" -lt 42 ]; then
             level=0; desc="Smart fast charge (full output)"
         elif [ "$temp_c" -lt 45 ]; then
-            level=1; desc="Smart fast charge (balanced, ~50W)"
+            level=1; desc="Smart fast charge (balanced)"
         else
             level=3; desc="Smart fast charge (heat fallback)"
         fi

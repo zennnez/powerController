@@ -23,6 +23,7 @@ if [ -f "$OLD_SELF/config.txt" ]; then
         ui_print "- Thermal Guard threshold 43C -> 46C"
     fi
 fi
+[ -f "$OLD_SELF/peak_watts" ] && cp "$OLD_SELF/peak_watts" "$MODPATH/peak_watts" 2>/dev/null
 if [ -d "$OLD_SELF" ]; then
     # Old daemon keeps running until reboot; stop it so the new one takes over cleanly.
     pkill -f "$OLD_SELF/service.sh" 2>/dev/null

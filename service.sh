@@ -79,6 +79,21 @@ update_prop_desc() {
     } > "$tmp_prop" && mv -f "$tmp_prop" "$MODDIR/module.prop"
 }
 
+# Remember the highest charge power seen (whole watts) so the WebUI can show a
+# device-specific rating without hard-coding one. Ignores readings above
+# MAX_RATED_WATTS as sensor glitches, and only writes when the peak rises.
+update_peak_watts() {
+    [ "$BATTERY_STATUS" = "Charging" ] || return 0
+    case "$WATTAGE" in ''|N/A) return 0 ;; esac
+    local peak
+    peak=$(cat "$PEAK_WATTS_FILE" 2>/dev/null)
+    is_number "$peak" || peak=0
+    if awk -v w="$WATTAGE" -v p="$peak" -v m="$MAX_RATED_WATTS" 'BEGIN { exit !(w <= m && w >= p + 1) }'; then
+        printf '%.0f\n' "$WATTAGE" > "$PEAK_WATTS_FILE" 2>/dev/null
+        log "Peak charge power now $(cat "$PEAK_WATTS_FILE" 2>/dev/null) W."
+    fi
+}
+
 get_temp_celsius() {
     local raw="$1"
     case "$raw" in
@@ -156,6 +171,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
         echo "OVERRIDE_MODE=AUTO"
         echo "FAST_CHARGE=$DEFAULT_FAST_CHARGE"
         echo "SMART_POWER=$DEFAULT_SMART_POWER"
+        echo "RATED_WATTS=$DEFAULT_RATED_WATTS"
     } > "$CONFIG_FILE"
     log "Config file missing. Auto-generated config.txt with default values."
 fi
@@ -203,6 +219,7 @@ while true; do
             echo "OVERRIDE_MODE=AUTO"
             echo "FAST_CHARGE=$DEFAULT_FAST_CHARGE"
             echo "SMART_POWER=$DEFAULT_SMART_POWER"
+            echo "RATED_WATTS=$DEFAULT_RATED_WATTS"
         } > "$CONFIG_FILE"
         log "Config file missing. Auto-generated config.txt with default values."
     fi
@@ -357,6 +374,7 @@ while true; do
     # unplugged branch above `continue`s before reaching here).
     if [ "$LAST_STATE" != "DISABLED" ]; then
         fast_charge_tick
+        update_peak_watts
     fi
 
     if [ -f "$LOG_FILE" ]; then
