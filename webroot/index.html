@@ -100,14 +100,14 @@
           <button id="fc-max" class="segmented-btn" type="button">Max</button>
         </div>
 
-        <p class="muted" style="margin-top: 10px;">Smart steps cool_down down as the battery warms (42 / 45 °C). Max removes screen-on throttling and only backs off at 45 °C. Off leaves cool_down alone.</p>
+        <p class="muted" style="margin-top: 10px;">Smart targets 100% of rated power below 42 °C, 60% at 42–45 °C and 35% above, adjusting cool_down to match. Max removes screen-on throttling and only backs off at 45 °C. Off leaves cool_down alone.</p>
         <div class="slider-group">
           <div class="slider-header">
             <label for="rated-watts">Rated charge power</label>
             <span><output id="rated-output">Auto</output></span>
           </div>
           <input id="rated-watts" name="rated" type="range" min="0" max="150" step="5" value="0">
-          <p class="muted">Auto uses the highest charge power seen on this device. Set a value to override it.</p>
+          <p class="muted">Smart mode's power targets are a share of this. Auto uses the highest charge power seen on this device; set a value to match your charger.</p>
           <p class="muted">Rated: <span id="rated-effective">--</span></p>
         </div>
         <p class="muted">Charge: <span id="fc-state">--</span></p>

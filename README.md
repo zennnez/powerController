@@ -1,7 +1,7 @@
 # ⚡ OnePlus / OPPO Bypass Charging Controller (oplusPowerController)
 
-[![Version](https://img.shields.io/badge/version-v97.0-green.svg)](module.prop)
-[![VersionCode](https://img.shields.io/badge/versionCode-83-blue.svg)](module.prop)
+[![Version](https://img.shields.io/badge/version-v98.0-green.svg)](module.prop)
+[![VersionCode](https://img.shields.io/badge/versionCode-84-blue.svg)](module.prop)
 [![Root Managers](https://img.shields.io/badge/Root-Magisk%20%7C%20KernelSU%20%7C%20KSU%20Next%20%7C%20APatch-orange.svg)](META-INF/com/google/android/update-binary)
 
 An advanced, hardware-level battery management and bypass charging module engineered for **OnePlus Pad 2 Pro (sm8750)** and compatible **OPPO / OnePlus / Realme (OPlus)** devices running **KernelSU**, **KernelSU Next**, **APatch**, or **Magisk**.
@@ -35,11 +35,11 @@ This module targets the single verified charging arbitration voter node on the *
 
 ### ⚡ Fast Charge & Smart Power *(merged from OnePlus-Pad-90W-Smart-Charge)*
 * **Fast Charge (`FAST_CHARGE=OFF|SMART|MAX`)**: unlocks the system fast-charge settings and steps the `oplus_chg` `cool_down` level by battery temperature, only while the battery reports `Charging` (so it never fights bypass). Handled in `fast-charge.sh`, called from the main loop.
-  * `SMART` *(default)*: `<42°C` level 0 (full output) · `42–45°C` level 1 (balanced) · `≥45°C` level 3 (heat fallback).
+  * `SMART` *(default)*: target power is a share of the rated charge power by battery temperature: `<42°C` 100% (level 0, full output) · `42–45°C` 60% · `≥45°C` 35%. `cool_down` is stepped between 0 and 3 every 5s until the measured charge power is within about 75–110% of the target, so the same percentages work on a 45W or a 90W device. If no rating is known yet (nothing detected, none set), it falls back to fixed levels: 42–45°C → 1, ≥45°C → 3. The percentages and limits are the `FC_*` constants at the top of `fast-charge.sh`.
   * `MAX`: level 0 below 45°C so screen-on throttling is removed; level 2 at ≥45°C.
   * `OFF`: this module never touches `cool_down` or the charge settings.
   * `cool_down` is returned to 0 as soon as charging stops. Thermal Guard (`MAX_TEMP`, default 46°C) sits above every tier and cuts charging entirely.
-* **Rated charge power**: no wattage is hard-coded. `service.sh` records the highest charge power seen while charging in `peak_watts`, and the WebUI shows it as the detected rating. Set `RATED_WATTS` (slider in the WebUI, 0 = Auto) to override it for your charger. It is informational and does not change charging behaviour.
+* **Rated charge power**: no wattage is hard-coded and nothing is assumed about your charger. `service.sh` records the highest charge power seen while charging in `peak_watts`, and the WebUI shows it as the detected rating. Set `RATED_WATTS` (slider in the WebUI, 0 = Auto) to override it for your charger. Smart mode uses it to set its power targets (below).
 * **Toggle app (optional)**: `apk/FastChargeToggle.apk` (source in `apk/source/`) adds a launcher icon and a Quick Settings tile that flip `MAX` ⇄ `SMART`. It works unchanged: at boot `service.sh` points `/data/local/tmp/toggle_fast_charge.sh` at `toggle-fast-charge.sh`, and the `/data/local/tmp/super_charge_unlocked` flag the tile reads is kept in sync with `FAST_CHARGE`. The WebUI **Fast Charge** card does the same thing.
 * **Smart Power (`SMART_POWER=1|0`)**: `smart-power.sh` runs a background daemon with per-app profiles for the SM8750: CPU/GPU caps, 60/120Hz refresh, 540Hz touch sampling for games, Doze on screen-off, local `llama-server` boost. Casual-game packages can be added to `/sdcard/casual_powersave_games.txt` (hot-reloaded). Set `SMART_POWER=0` and reboot to disable. Live status is written to `/data/local/tmp/smart_power_status.json`, and profile changes are logged to `bypass.log`.
 

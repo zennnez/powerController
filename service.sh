@@ -35,10 +35,10 @@ OFFLINE_FULL_CHECK_INTERVAL=300
 OFFLINE_USB_CHECK_INTERVAL=10
 
 VERSION_STR=$(grep '^version=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_STR" ] && VERSION_STR="v97.0"
+[ -z "$VERSION_STR" ] && VERSION_STR="v98.0"
 
 VERSION_CODE_STR=$(grep '^versionCode=' "$MODDIR/module.prop" 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
-[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="83"
+[ -z "$VERSION_CODE_STR" ] && VERSION_CODE_STR="84"
 
 # ==============================
 # Helper Functions

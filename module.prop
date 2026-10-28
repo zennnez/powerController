@@ -1,6 +1,6 @@
 id=oplusPowerController
 name=OnePlus / OPPO Bypass Charging Controller
-version=v97.0
-versionCode=83
+version=v98.0
+versionCode=84
 author=wind1, zen
 description=[Status: ❓] \nMode: ❓ | Thermal Guard: ❓ | Override: ❓ \nSupports Magisk, KernelSU, and KernelSU Next with WebUI for real-time monitoring of charger, battery and bypass status.

@@ -67,6 +67,12 @@ jobs:
       - name: Extract Metadata & Commit Log
         id: meta
         if: steps.gate.outputs.should_release == 'true'
+        # Commit text is untrusted: hand it to the script through env vars, never
+        # by expanding ${{ }} inside the script, or quotes/backticks/$() in a
+        # commit message would be executed by bash.
+        env:
+          GATE_TAG: ${{ steps.gate.outputs.commit_tag }}
+          GATE_MESSAGE: ${{ steps.gate.outputs.release_message }}
         run: |
           VERSION=$(grep '^version=' module.prop | cut -d= -f2 | tr -d '\r\n ')
           ID=$(grep '^id=' module.prop | cut -d= -f2 | tr -d '\r\n ')
@@ -75,8 +81,8 @@ jobs:
           # the pushed tag itself). Only fall back to deriving a tag from
           # module.prop's version when neither applies - i.e. a manual
           # workflow_dispatch run.
-          if [ -n "${{ steps.gate.outputs.commit_tag }}" ]; then
-            TAG_NAME="${{ steps.gate.outputs.commit_tag }}"
+          if [ -n "$GATE_TAG" ]; then
+            TAG_NAME="$GATE_TAG"
           elif [[ "$VERSION" == v* ]]; then
             TAG_NAME="$VERSION"
           else
@@ -98,7 +104,7 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           COMMIT_MSG=$(git log -1 --pretty=format:"%s")
 
-          RELEASE_MESSAGE="${{ steps.gate.outputs.release_message }}"
+          RELEASE_MESSAGE="$GATE_MESSAGE"
           [ -z "$RELEASE_MESSAGE" ] && RELEASE_MESSAGE="$COMMIT_MSG"
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -111,8 +117,9 @@ jobs:
 
       - name: Build Module Zip Package
         if: steps.gate.outputs.should_release == 'true'
+        env:
+          ZIP_NAME: ${{ steps.meta.outputs.zip_name }}
         run: |
-          ZIP_NAME="${{ steps.meta.outputs.zip_name }}"
           zip -r9 "${ZIP_NAME}" * -x ".git/*" ".github/*" ".gitignore" "scratch/*" "*.sha256"
           sha256sum "${ZIP_NAME}" > "${ZIP_NAME}.sha256"
 

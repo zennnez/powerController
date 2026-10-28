@@ -1,17 +1,34 @@
 #!/system/bin/sh
-# Fast-charge thermal tiering, ported from OnePlus-Pad-90W-Smart-Charge.
+# Fast-charge control, ported from OnePlus-Pad-90W-Smart-Charge.
 # Sourced by service.sh, which provides log(), now_epoch() and get_temp_celsius().
-# Reads FAST_CHARGE (OFF|SMART|MAX), BATTERY_STATUS and TEMPERATURE from power-data.sh.
+# Reads FAST_CHARGE (OFF|SMART|MAX), BATTERY_STATUS, TEMPERATURE, WATTAGE and
+# RATED_EFFECTIVE (rated charge power in W: manual or detected) from power-data.sh.
 #
-#   SMART: <42C cool_down 0 (full output) | 42-45C level 1 (balanced) | >=45C level 3 (fallback)
+#   SMART: target power is a share of the rated power, by battery temperature:
+#            <42C  100% (cool_down 0, full output)
+#            42-45C FC_PCT_WARM % | >=45C FC_PCT_HOT %
+#          cool_down is stepped (0..FC_MAX_LEVEL) every FC_ADJUST_SECONDS until the
+#          measured charge power is near the target. With no rating known yet it
+#          falls back to fixed levels: 42-45C -> 1, >=45C -> 3.
 #   MAX:   <45C cool_down 0 (no screen-on throttle) | >=45C level 2 (back off)
-#   Thermal Guard (default 46C, service.sh) cuts charging entirely above both.
 #   OFF:   this module never touches cool_down or the charge settings.
 #
+# Thermal Guard (default 46C, service.sh) cuts charging entirely above all of these.
 # Only acts while the battery reports "Charging", so it stays out of the way
-# whenever bypass is active. cool_down is returned to 0 the first tick after
-# charging stops, matching the original module.
+# whenever bypass is active. cool_down returns to 0 the first tick after charging stops.
+# Assumes a higher cool_down level means more throttling (levels 0-3, as the
+# original module used).
 
+FC_PCT_WARM=60
+FC_PCT_HOT=35
+FC_MAX_LEVEL=3
+FC_ADJUST_SECONDS=5
+
+FC_BAND=""
+FC_LEVEL=0
+FC_LAST_ADJ=0
+FC_OUT_LEVEL=0
+FC_OUT_DESC=""
 FC_DIRTY=0
 FC_LAST_LEVEL=""
 FC_LAST_DESC=""
@@ -41,6 +58,8 @@ fc_sync_flag() {
 }
 
 fast_charge_reset() {
+    FC_BAND=""
+    FC_LEVEL=0
     if [ "$FC_DIRTY" = "1" ]; then
         fc_set_cool_down 0
         FC_DIRTY=0
@@ -52,6 +71,53 @@ fast_charge_reset() {
     else
         fc_set_state "Idle (not charging)"
     fi
+}
+
+# Sets FC_OUT_LEVEL / FC_OUT_DESC for SMART mode at integer temperature $1.
+fc_smart_level() {
+    local t="$1" band base pct target meas nowt
+
+    if [ "$t" -lt 42 ]; then
+        FC_BAND=0; FC_LEVEL=0
+        FC_OUT_LEVEL=0; FC_OUT_DESC="Smart fast charge (full output)"
+        return 0
+    elif [ "$t" -lt 45 ]; then
+        band=1; base=1; pct=$FC_PCT_WARM
+    else
+        band=2; base=3; pct=$FC_PCT_HOT
+    fi
+
+    case "$RATED_EFFECTIVE" in
+        ''|N/A|*[!0-9]*)
+            # No rating yet (nothing detected, none set): fixed levels.
+            FC_BAND=""; FC_LEVEL=$base
+            FC_OUT_LEVEL=$base
+            FC_OUT_DESC="Smart fast charge (fixed level $base, rating unknown)"
+            return 0
+            ;;
+    esac
+
+    target=$(awk -v r="$RATED_EFFECTIVE" -v p="$pct" 'BEGIN { printf "%.0f", r * p / 100 }')
+    nowt=$(now_epoch)
+
+    if [ "$band" != "$FC_BAND" ]; then
+        # Entered a new temperature band: start from the fixed level, then adjust.
+        FC_BAND=$band; FC_LEVEL=$base; FC_LAST_ADJ=$nowt
+    elif [ $((nowt - FC_LAST_ADJ)) -ge "$FC_ADJUST_SECONDS" ]; then
+        case "$WATTAGE" in
+            ''|N/A) ;;
+            *)
+                if awk -v m="$WATTAGE" -v t="$target" 'BEGIN { exit !(m > t * 1.10) }' && [ "$FC_LEVEL" -lt "$FC_MAX_LEVEL" ]; then
+                    FC_LEVEL=$((FC_LEVEL + 1)); FC_LAST_ADJ=$nowt
+                elif awk -v m="$WATTAGE" -v t="$target" 'BEGIN { exit !(m < t * 0.75) }' && [ "$FC_LEVEL" -gt 0 ]; then
+                    FC_LEVEL=$((FC_LEVEL - 1)); FC_LAST_ADJ=$nowt
+                fi
+                ;;
+        esac
+    fi
+
+    FC_OUT_LEVEL=$FC_LEVEL
+    FC_OUT_DESC="Smart fast charge (target ${target}W of ${RATED_EFFECTIVE}W)"
 }
 
 fast_charge_tick() {
@@ -80,13 +146,8 @@ fast_charge_tick() {
             level=2; desc="Max mode back-off (>= 45C)"
         fi
     else
-        if [ "$temp_c" -lt 42 ]; then
-            level=0; desc="Smart fast charge (full output)"
-        elif [ "$temp_c" -lt 45 ]; then
-            level=1; desc="Smart fast charge (balanced)"
-        else
-            level=3; desc="Smart fast charge (heat fallback)"
-        fi
+        fc_smart_level "$temp_c"
+        level=$FC_OUT_LEVEL; desc=$FC_OUT_DESC
     fi
 
     # cool_down is a plain sysfs write, so re-assert it every tick in case
